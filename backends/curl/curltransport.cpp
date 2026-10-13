@@ -1,5 +1,7 @@
 #include "backends/curl/curltransport.h"
 #include "core/log.h"
+#include <cctype>
+#include <cstring>
 #include <mutex>
 #include <string>
 
@@ -101,14 +103,40 @@ size_t writeCb(char *ptr, size_t sz, size_t nmemb, void *userp)
     return n;
 }
 
+// Header lines that carry credentials keep their name and lose their value in traces:
+// the OAuth bearer, the consent / session cookies.
+bool isCredentialHeader(const std::string &line)
+{
+    static const char *const kNames[] = {"authorization:", "proxy-authorization:", "cookie:", "set-cookie:"};
+    for (const char *name : kNames) {
+        const size_t n = std::strlen(name);
+        if (line.size() < n) continue;
+        bool match = true;
+        for (size_t i = 0; i < n && match; ++i)
+            match = (char) std::tolower((unsigned char) line[i]) == name[i];
+        if (match) return true;
+    }
+    return false;
+}
+
 int debugCb(CURL *, curl_infotype type, char *data, size_t size, void *userp)
 {
     if (type != CURLINFO_TEXT && type != CURLINFO_HEADER_IN && type != CURLINFO_HEADER_OUT) return 0;
-    std::string line(data, size);
-    while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) line.pop_back();
     const char *tag = (type == CURLINFO_TEXT) ? "*" : (type == CURLINFO_HEADER_OUT ? ">" : "<");
     const Logger &log = *static_cast<const Logger *>(userp);
-    YTLOG(log, "curl") << tag << line;
+    // HEADER_OUT arrives as one block of CRLF-separated lines: trace (and redact) per line.
+    const std::string block(data, size);
+    size_t pos = 0;
+    while (pos < block.size()) {
+        size_t eol = block.find('\n', pos);
+        if (eol == std::string::npos) eol = block.size();
+        std::string line = block.substr(pos, eol - pos);
+        pos = eol + 1;
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+        if (line.empty()) continue;
+        if (type != CURLINFO_TEXT && isCredentialHeader(line)) line = line.substr(0, line.find(':') + 1) + " <redacted>";
+        YTLOG(log, "curl") << tag << line;
+    }
     return 0;                                              // non-zero would abort the transfer
 }
 

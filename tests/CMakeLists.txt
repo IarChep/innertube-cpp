@@ -40,4 +40,6 @@ add_test(NAME innertube_no_qt
 if(INNERTUBE_HTTP_BACKEND STREQUAL "curl")
     it_test(tst_conformance_curl)
     target_link_libraries(tst_conformance_curl PRIVATE innertube_conformance)
+    it_test(tst_curl_logging)
+    target_link_libraries(tst_curl_logging PRIVATE innertube_conformance)
 endif()
