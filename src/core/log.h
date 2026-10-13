@@ -2,7 +2,7 @@
 // No logger installed: the streamed arguments are not evaluated (zero cost).
 #ifndef YT_CORE_LOG_H
 #define YT_CORE_LOG_H
-#include <yt/client.h>
+#include <yt/log.h>
 #include <sstream>
 #include <string_view>
 namespace yt::core {
