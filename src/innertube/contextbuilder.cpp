@@ -47,7 +47,7 @@ static bool omitVisitor(ClientId id) {
 }
 
 std::string ContextBuilder::contextJson(ClientId id, const Session &s) {
-    const ClientInfo &ci = clientInfo(id);
+    const ClientInfo &ci = s.clients[(int) id];
     cj::Context ctx;
     ctx.client.clientName = ci.name;
     ctx.client.clientVersion = ci.version;
@@ -75,7 +75,7 @@ std::string ContextBuilder::contextJson(ClientId id, const Session &s) {
 }
 
 std::vector<Header> ContextBuilder::headers(ClientId id, const Session &s) {
-    const ClientInfo &ci = clientInfo(id);
+    const ClientInfo &ci = s.clients[(int) id];
     std::vector<Header> h;
     h.push_back({"Content-Type", "application/json"});
     h.push_back({"X-YouTube-Client-Name", std::to_string(ci.id)});

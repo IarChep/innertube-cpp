@@ -35,6 +35,7 @@ it_test(tst_url)
 it_test(tst_http)
 it_test(tst_fakehttp)
 it_test(tst_chains)
+it_test(tst_catalog)
 
 add_test(NAME innertube_no_qt
          COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/no_qt.cmake)

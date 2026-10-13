@@ -30,7 +30,8 @@ add_library(innertube STATIC
     src/net/url.cpp
     src/core/pct.cpp
     src/net/httpclient.cpp
-    src/core/chains.cpp)
+    src/core/chains.cpp
+    src/catalog.cpp)
 add_library(innertube::innertube ALIAS innertube)
 set_target_properties(innertube PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(innertube PUBLIC cxx_std_17)

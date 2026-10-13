@@ -207,7 +207,7 @@ static void playerTry(IHttp &http, std::string videoId, std::shared_ptr<std::vec
                         else if (s.id == "audio") aud = true;
                         else if (s.width > 0) ++prog;
                     }
-                    YTLOG(h->log(), "player") << "player" << clientInfo(client).name
+                    YTLOG(h->log(), "player") << "player" << h->session().clients[(int) client].name
                         << "playable=" << pr.playable << "streams=" << pr.streams.size()
                         << "hls=" << hls << "prog=" << prog << "audio=" << aud
                         << "formats=" << pr.formatsSeen << "adaptive=" << pr.adaptiveSeen
@@ -239,7 +239,7 @@ static void playerTry(IHttp &http, std::string videoId, std::shared_ptr<std::vec
                 }
             } else {
                 acc->lastError = errorOf(r);
-                YTLOG(h->log(), "player") << "player" << clientInfo(client).name << "TRANSPORT FAIL:" << r.error;
+                YTLOG(h->log(), "player") << "player" << h->session().clients[(int) client].name << "TRANSPORT FAIL:" << r.error;
             }
             if (isLast) {
                 Result<std::vector<Stream>> s;

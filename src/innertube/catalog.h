@@ -1,5 +1,5 @@
-#ifndef YT_CATALOG_H
-#define YT_CATALOG_H
+#ifndef YT_INNERTUBE_CATALOG_H
+#define YT_INNERTUBE_CATALOG_H
 namespace yt {
 
 // Single home for the cross-cutting, FRAGILE constants that rotate over time.

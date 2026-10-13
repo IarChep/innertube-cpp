@@ -1,6 +1,6 @@
 #include "clientconfig.h"
 namespace yt {
-const ClientInfo &clientInfo(ClientId id) {
+ClientInfo defaultClientInfo(ClientId id) {
     static const ClientInfo WEB   = { "WEB", "2.20260626.01.00",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", 1 };
     static const ClientInfo SAFARI= { "WEB", "2.20260626.01.00",
@@ -25,5 +25,11 @@ const ClientInfo &clientInfo(ClientId id) {
         case ClientId::TVHTML5:    return TV;
     }
     return WEB;
+}
+
+ClientTable defaultClientTable() {
+    ClientTable t;
+    for (int i = 0; i < kClientIdCount; ++i) t[i] = defaultClientInfo((ClientId) i);
+    return t;
 }
 }
