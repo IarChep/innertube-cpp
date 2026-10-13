@@ -1,0 +1,47 @@
+// The transport seam the request chains (and FakeHttp) program against.
+#ifndef YT_CORE_IHTTP_H
+#define YT_CORE_IHTTP_H
+#include <yt/log.h>
+#include <yt/result.h>
+#include "core/job.h"
+#include "core/pct.h"
+#include "core/session.h"
+#include "innertube/clientconfig.h"
+#include <functional>
+#include <memory>
+#include <string>
+#include <string_view>
+namespace yt::core {
+
+// One finished request. body is never null and stays populated on !ok (OAuth reads
+// its error code from a failed reply); visitorData is pre-extracted by the envelope scan.
+struct Reply {
+    bool ok = false;
+    std::shared_ptr<const std::string> body = std::make_shared<std::string>();
+    ErrorCode code = ErrorCode::Transport;   // meaningful when !ok
+    std::string error;
+    long httpStatus = 0;
+    std::string visitorData;
+};
+using HttpFn = std::function<void(const Reply &)>;
+
+// Callbacks are invoked at most once, never re-entrantly from inside the call that
+// started them, and on the implementation's (engine) thread. A canceled JobToken
+// suppresses delivery.
+class IHttp {
+public:
+    virtual ~IHttp() = default;
+    virtual void post(std::string_view endpoint, ClientId, std::string bodyJson, const JobToken &, HttpFn) = 0;
+    virtual void postForm(std::string url, Form fields, const JobToken &, HttpFn) = 0;
+    virtual void get(std::string url, const JobToken &, HttpFn) = 0;
+    // Drop `job`'s waiters; cancel exchanges left without any. Call after canceling the token.
+    virtual void abort(const JobToken &) = 0;
+    // Read freely; mutate only hl/gl/visitorData and then clearCache() (memoized context).
+    virtual Session &session() = 0;
+    virtual void clearCache() = 0;                    // response cache + context/header memo
+    virtual void setBearer(std::string bearer) = 0;   // header memo only (same-identity refresh)
+    virtual const Logger &log() const = 0;
+};
+
+}
+#endif

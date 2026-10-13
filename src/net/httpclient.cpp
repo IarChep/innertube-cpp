@@ -1,0 +1,470 @@
+#include "net/httpclient.h"
+#include "core/log.h"
+#include "innertube/contextbuilder.h"
+#include "net/url.h"
+#include "parsers/jsonscan.h"
+#include "parsers/ytjson.h"
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <optional>
+
+namespace yt::net {
+
+using core::Reply;
+
+namespace detail {
+// Top-level InnerTube error envelope: {"error": {"code":.., "message": ".."}}.
+struct ErrEnvelope {
+    std::optional<std::string> message;
+};
+}
+
+namespace {
+
+// Response-cache bound: a browsing session's worth (home + feeds + pages). Entries are
+// raw body strings — a full cache is a few MB at worst.
+constexpr size_t kMaxCacheEntries = 64;
+
+// Per-endpoint cache TTLs (seconds). 0 = never cache: writes must always hit the
+// network, and /player payloads carry short-lived stream URLs.
+int cacheTtlSecs(std::string_view endpoint)
+{
+    if (endpoint == "account/accounts_list") return 900;
+    if (endpoint == "browse" || endpoint == "search" || endpoint == "next"
+        || endpoint == "navigation/resolve_url") return 180;
+    return 0;
+}
+
+char lower(char c) { return (c >= 'A' && c <= 'Z') ? char(c - 'A' + 'a') : c; }
+bool iequals(std::string_view a, std::string_view b)
+{
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) if (lower(a[i]) != lower(b[i])) return false;
+    return true;
+}
+const HttpHeader *findHeader(const std::vector<HttpHeader> &h, std::string_view name)
+{
+    for (const HttpHeader &x : h) if (iequals(x.name, name)) return &x;
+    return nullptr;
+}
+// A request carrying credentials never follows a redirect: the bearer / consent cookie
+// would be replayed to whatever origin the Location names.
+bool carriesCredentials(const HttpRequest &r)
+{
+    return findHeader(r.headers, "authorization") || findHeader(r.headers, "cookie");
+}
+bool isRedirect(int status)
+{
+    return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+}
+
+// The single top-level envelope scan over a delivered body (MeeTube's makeReply,
+// minus its transport branches which the caller has already handled).
+void envelope(Reply &out, bool wantVisitor)
+{
+    const std::string_view sv(*out.body);
+    // Cheap validity check instead of a whole-document validate pass: a JSON value must
+    // begin with '{' or '['. Empty / HTML (consent page) -> "invalid JSON response". A
+    // body that opens like JSON but is truncated degrades to "nothing collected" in the
+    // single-pass parsers (an empty result, not an error).
+    const char *p = gj::scan::skipWs(sv.data(), sv.data() + sv.size());
+    const char *e = sv.data() + sv.size();
+    if (p >= e || (*p != '{' && *p != '[')) {
+        out.ok = false;
+        out.code = ErrorCode::InvalidResponse;
+        out.error = "invalid JSON response";
+        return;
+    }
+    struct EnvelopeScan {
+        std::string_view error, responseContext;
+        bool wantVisitor;
+        void enter(int) {}
+        void leave(int) {}
+        gj::scan::Action what(std::string_view k, int depth)
+        {
+            if (depth != 0) return gj::scan::Action::Skip;
+            if (k == "error" && error.empty()) return gj::scan::Action::Capture;
+            if (wantVisitor && k == "responseContext" && responseContext.empty())
+                return gj::scan::Action::Capture;
+            return gj::scan::Action::Skip;
+        }
+        void capture(std::string_view k, std::string_view v, int)
+        { if (k == "error") error = v; else responseContext = v; }
+    } es{ {}, {}, wantVisitor };
+    gj::scan::document(sv, es);
+
+    // A top-level "error" of ANY type fails the reply; its message is used only when it
+    // is an object with a string message. The body stays populated (OAuth reads it).
+    if (!es.error.empty()) {
+        out.ok = false;
+        out.code = ErrorCode::Api;
+        out.error = "InnerTube error";
+        if (es.error.front() == '{') {
+            detail::ErrEnvelope err{};
+            gj::readJson(err, es.error);
+            if (err.message) out.error = *err.message;
+        }
+        return;
+    }
+    if (wantVisitor && !es.responseContext.empty() && es.responseContext.front() == '{') {
+        const std::string_view vdv = gj::scan::topLevelValue(es.responseContext, "visitorData");
+        if (!vdv.empty() && vdv.front() == '"') {
+            std::string vd;
+            if (!glz::read<gj::kIn>(vd, vdv)) out.visitorData = std::move(vd);
+        }
+    }
+    out.ok = true;
+}
+
+} // namespace
+
+// What one transport exchange delivered. Written only by its sink (whose calls the
+// HttpTransport contract serializes), read on the engine thread after onDone is posted.
+struct HttpClient::Hop {
+    int status = 0;
+    std::vector<HttpHeader> headers;
+    std::string body;
+    bool tooLarge = false;
+    TransportStatus st;
+};
+
+struct HttpClient::Exchange {
+    HttpClient *owner = nullptr;
+    HttpRequest req;                       // the current hop's request
+    std::vector<Waiter> waiters;           // >1 = coalesced identical requests
+    std::string coalesceKey;               // posts only
+    std::string cacheKey;                  // empty = not cacheable
+    int ttlSecs = 0;
+    bool wantVisitor = false;              // scan responseContext.visitorData on finish?
+    int hops = 0;                          // redirects followed so far
+    uint64_t transportId = 0;
+    std::shared_ptr<HopSink> sink;
+    uint64_t timer = 0;
+    bool done = false;
+    Loop::Clock::time_point t0 = Loop::Clock::now();
+};
+
+// The library's receiver for one hop. Body accumulation + the size cap happen here,
+// on whatever thread the backend calls from (calls for one request are serialized by
+// contract); completion is always posted to the engine loop, so delivery is never
+// re-entrant and never on a foreign thread. A late call after the exchange is gone
+// (canceled, timed out, client destroyed) finds the weak_ptr expired and is dropped.
+class HopSink final : public HttpResponseSink {
+public:
+    HopSink(Loop &loop, std::weak_ptr<HttpClient::Exchange> ex, int64_t cap)
+        : m_loop(loop), m_ex(std::move(ex)), m_cap(cap), m_hop(std::make_shared<HttpClient::Hop>()) {}
+    void onHead(int status, std::vector<HttpHeader> headers) override
+    {
+        m_hop->status = status;
+        m_hop->headers = std::move(headers);
+    }
+    bool onBody(const char *data, size_t size) override
+    {
+        if (m_abort.load()) return false;
+        if ((int64_t)(m_hop->body.size() + size) > m_cap) { m_hop->tooLarge = true; return false; }
+        m_hop->body.append(data, size);
+        return true;
+    }
+    void onDone(TransportStatus status) override
+    {
+        m_hop->st = std::move(status);
+        std::weak_ptr<HttpClient::Exchange> ex = m_ex;
+        std::shared_ptr<HttpClient::Hop> hop = m_hop;
+        m_loop.post([ex, hop]() {
+            if (std::shared_ptr<HttpClient::Exchange> e = ex.lock()) e->owner->onHopDone(e, hop);
+        });
+    }
+    void abort() { m_abort = true; }
+    const std::shared_ptr<HttpClient::Hop> &hop() const { return m_hop; }
+private:
+    Loop &m_loop;
+    std::weak_ptr<HttpClient::Exchange> m_ex;
+    int64_t m_cap;
+    std::shared_ptr<HttpClient::Hop> m_hop;
+    std::atomic<bool> m_abort{false};
+};
+
+HttpClient::HttpClient(Loop &loop, HttpTransport &transport, HttpOptions opts)
+    : m_loop(loop), m_transport(transport), m_opts(std::move(opts)) {}
+
+HttpClient::~HttpClient()
+{
+    m_life.reset();                                  // posted cache hits / failures go dead
+    for (const std::shared_ptr<Exchange> &ex : m_exchanges) {
+        ex->done = true;
+        if (ex->timer) m_loop.cancelTimer(ex->timer);
+        if (ex->sink) ex->sink->abort();
+        m_transport.cancel(ex->transportId);
+    }
+    m_exchanges.clear();                             // weak_ptrs in sinks/timers expire
+    m_inflightByKey.clear();
+}
+
+void HttpClient::clearCache()
+{
+    m_cache.clear();
+    m_cacheOrder.clear();
+    for (int i = 0; i < kClientCount; ++i) { m_ctxValid[i] = false; m_hdrValid[i] = false; }
+}
+
+void HttpClient::setBearer(std::string bearer)
+{
+    m_session.bearer = std::move(bearer);
+    for (int i = 0; i < kClientCount; ++i) m_hdrValid[i] = false;
+}
+
+const std::string &HttpClient::cachedContext(ClientId id)
+{
+    const int i = (int) id;
+    if (!m_ctxValid[i]) { m_ctxCache[i] = ContextBuilder::contextJson(id, m_session); m_ctxValid[i] = true; }
+    return m_ctxCache[i];
+}
+
+const std::vector<HttpHeader> &HttpClient::cachedHeaders(ClientId id)
+{
+    const int i = (int) id;
+    if (!m_hdrValid[i]) {
+        m_hdrCache[i].clear();
+        for (const Header &h : ContextBuilder::headers(id, m_session)) m_hdrCache[i].push_back({h.name, h.value});
+        m_hdrValid[i] = true;
+    }
+    return m_hdrCache[i];
+}
+
+std::shared_ptr<HttpClient::Exchange> HttpClient::newExchange(HttpRequest req, core::JobToken job, core::HttpFn fn)
+{
+    std::shared_ptr<Exchange> ex = std::make_shared<Exchange>();
+    ex->owner = this;
+    ex->req = std::move(req);
+    ex->waiters.push_back({std::move(job), std::move(fn)});
+    m_exchanges.push_back(ex);
+    return ex;
+}
+
+void HttpClient::failAsync(const core::JobToken &job, core::HttpFn fn, std::string message)
+{
+    std::weak_ptr<char> life = m_life;
+    m_loop.post([life, job, fn, message]() {
+        if (life.expired() || !core::live(job)) return;
+        Reply r;
+        r.code = ErrorCode::Transport;
+        r.error = message;
+        fn(r);
+    });
+}
+
+void HttpClient::post(std::string_view endpoint, ClientId client, std::string bodyJson,
+                      const core::JobToken &job, core::HttpFn done)
+{
+    // Splice the context in: every bodies:: builder emits a JSON object, so the
+    // payload is {"context":<ctx>[, <body members>]}.
+    const std::string &ctx = cachedContext(client);
+    std::string payload;
+    payload.reserve(ctx.size() + bodyJson.size() + 16);
+    payload += "{\"context\":";
+    payload += ctx;
+    if (bodyJson.size() > 2) {                       // not the empty object "{}"
+        payload += ',';
+        payload.append(bodyJson, 1, std::string::npos);
+    } else {
+        payload += '}';
+    }
+
+    // The full key is both the cache key (TTL>0) and the coalescing key; it covers
+    // endpoint, client and the payload (browseId/continuation + hl/gl/visitorData).
+    std::string key;
+    key.reserve(endpoint.size() + payload.size() + 8);
+    key.append(endpoint).append(1, '|').append(std::to_string((int) client)).append(1, '|').append(payload);
+    const int ttl = cacheTtlSecs(endpoint);
+
+    // (a) COALESCE: an identical request is in flight — attach as a waiter.
+    auto inflight = m_inflightByKey.find(key);
+    if (inflight != m_inflightByKey.end()) {
+        if (std::shared_ptr<Exchange> ex = inflight->second.lock()) {
+            if (!ex->done) { ex->waiters.push_back({job, std::move(done)}); return; }
+        }
+    }
+    // (b) CACHE HIT: deliver asynchronously — never re-entrant from post().
+    if (ttl > 0) {
+        auto hit = m_cache.find(key);
+        if (hit != m_cache.end() && hit->second.expires > Loop::Clock::now()) {
+            std::weak_ptr<char> life = m_life;
+            std::shared_ptr<const std::string> body = hit->second.body;
+            m_loop.post([life, job, done, body]() {
+                if (life.expired() || !core::live(job)) return;
+                Reply r;
+                r.ok = true;
+                r.httpStatus = 200;
+                r.body = body;
+                done(r);
+            });
+            return;
+        }
+    }
+    // (c) MISS.
+    HttpRequest req;
+    req.method = HttpRequest::Method::Post;
+    req.url = m_opts.baseUrl;
+    req.url.append(endpoint).append("?prettyPrint=false");
+    req.headers = cachedHeaders(client);
+    req.body = std::move(payload);
+    std::shared_ptr<Exchange> ex = newExchange(std::move(req), job, std::move(done));
+    ex->cacheKey = (ttl > 0) ? key : std::string();
+    ex->ttlSecs = ttl;
+    ex->wantVisitor = m_session.visitorData.empty();
+    m_inflightByKey[key] = ex;
+    ex->coalesceKey = std::move(key);
+    launch(ex);
+}
+
+void HttpClient::get(std::string url, const core::JobToken &job, core::HttpFn done)
+{
+    if (schemeOf(url).empty()) { failAsync(job, std::move(done), "unsupported URL scheme"); return; }
+    HttpRequest req;
+    req.url = std::move(url);                        // byte-exact: never re-encoded
+    std::shared_ptr<Exchange> ex = newExchange(std::move(req), job, std::move(done));
+    ex->wantVisitor = m_session.visitorData.empty();
+    launch(ex);
+}
+
+void HttpClient::postForm(std::string url, core::Form fields, const core::JobToken &job, core::HttpFn done)
+{
+    if (schemeOf(url).empty()) { failAsync(job, std::move(done), "unsupported URL scheme"); return; }
+    HttpRequest req;
+    req.method = HttpRequest::Method::Post;
+    req.url = std::move(url);
+    req.headers.push_back({"Content-Type", "application/x-www-form-urlencoded"});
+    req.body = core::formEncode(fields);
+    std::shared_ptr<Exchange> ex = newExchange(std::move(req), job, std::move(done));
+    ex->wantVisitor = false;                         // OAuth endpoints are not youtubei calls
+    launch(ex);
+}
+
+void HttpClient::launch(const std::shared_ptr<Exchange> &ex)
+{
+    ex->sink = std::make_shared<HopSink>(m_loop, ex, m_opts.maxBodyBytes);
+    if (!ex->timer && m_opts.timeoutMs > 0) {
+        std::weak_ptr<Exchange> w = ex;
+        ex->timer = m_loop.after(m_opts.timeoutMs, [w]() {
+            if (std::shared_ptr<Exchange> e = w.lock()) e->owner->onTimeout(e);
+        });
+    }
+    ex->transportId = m_transport.start(ex->req, ex->sink);
+}
+
+void HttpClient::onTimeout(const std::shared_ptr<Exchange> &ex)
+{
+    if (ex->done) return;
+    ex->timer = 0;
+    ex->sink->abort();
+    m_transport.cancel(ex->transportId);
+    Reply r;
+    r.code = ErrorCode::Timeout;
+    r.error = "request timed out";
+    complete(ex, std::move(r));                      // the backend's late onDone is ignored
+}
+
+void HttpClient::onHopDone(const std::shared_ptr<Exchange> &ex, const std::shared_ptr<Hop> &hop)
+{
+    if (ex->done || !ex->sink || ex->sink->hop() != hop) return;   // stale hop
+    Reply r;
+    r.httpStatus = hop->status;
+    r.body = std::make_shared<const std::string>(std::move(hop->body));
+    if (hop->tooLarge) {
+        r.error = "response too large";
+        complete(ex, std::move(r));
+        return;
+    }
+    // Any transport-level error fails the reply — even with bytes received: a truncated
+    // body parsed as success would yield (and cache) a spurious empty feed.
+    if (hop->st.error != TransportError::None) {
+        r.error = hop->st.message.empty() ? std::string("transport error") : hop->st.message;
+        complete(ex, std::move(r));
+        return;
+    }
+    if (isRedirect(hop->status)) {
+        const HttpHeader *loc = findHeader(hop->headers, "location");
+        if (loc && !carriesCredentials(ex->req)) {
+            if (ex->hops >= m_opts.maxRedirects) { r.error = "too many redirects"; complete(ex, std::move(r)); return; }
+            std::string next = resolveLocation(ex->req.url, loc->value);
+            if (schemeOf(next).empty()) { r.error = "unsupported URL scheme"; complete(ex, std::move(r)); return; }
+            ++ex->hops;
+            ex->req.url = std::move(next);
+            const bool post = ex->req.method == HttpRequest::Method::Post;
+            if (hop->status == 303 || (post && (hop->status == 301 || hop->status == 302))) {
+                ex->req.method = HttpRequest::Method::Get;
+                ex->req.body.clear();
+                ex->req.headers.erase(std::remove_if(ex->req.headers.begin(), ex->req.headers.end(),
+                    [](const HttpHeader &h) { return iequals(h.name, "content-type"); }), ex->req.headers.end());
+            }
+            launch(ex);
+            return;
+        }
+        // Credentialed (or Location-less): delivered as is — the envelope check fails it.
+    }
+    envelope(r, ex->wantVisitor);
+    complete(ex, std::move(r));
+}
+
+void HttpClient::forget(const std::shared_ptr<Exchange> &ex)
+{
+    m_exchanges.erase(std::remove(m_exchanges.begin(), m_exchanges.end(), ex), m_exchanges.end());
+    if (!ex->coalesceKey.empty()) {
+        auto it = m_inflightByKey.find(ex->coalesceKey);
+        if (it != m_inflightByKey.end() && it->second.lock() == ex) m_inflightByKey.erase(it);
+    }
+}
+
+void HttpClient::complete(const std::shared_ptr<Exchange> &ex, Reply r)
+{
+    ex->done = true;
+    if (ex->timer) { m_loop.cancelTimer(ex->timer); ex->timer = 0; }
+    forget(ex);
+
+    if (r.ok && !ex->cacheKey.empty() && ex->ttlSecs > 0) {
+        if (!m_cache.count(ex->cacheKey)) m_cacheOrder.push_back(ex->cacheKey);
+        m_cache[ex->cacheKey] = CacheEntry{r.body, Loop::Clock::now() + std::chrono::seconds(ex->ttlSecs)};
+        while (m_cacheOrder.size() > kMaxCacheEntries) {
+            m_cache.erase(m_cacheOrder.front());
+            m_cacheOrder.pop_front();
+        }
+    }
+    // Adopt the server-issued visitorData from the first reply that carries one. The
+    // memoized context/headers embed it, so they are rebuilt; the response cache is
+    // keyed by the full payload and simply misses for the new identity.
+    if (r.ok && m_session.visitorData.empty() && !r.visitorData.empty()) {
+        m_session.visitorData = r.visitorData;
+        for (int i = 0; i < kClientCount; ++i) { m_ctxValid[i] = false; m_hdrValid[i] = false; }
+        if (m_visitorSink) m_visitorSink(m_session.visitorData);
+    }
+    YTLOG(m_opts.log, "net") << "DONE" << r.httpStatus << (r.ok ? std::string("ok") : r.error)
+        << std::chrono::duration_cast<std::chrono::milliseconds>(Loop::Clock::now() - ex->t0).count() << "ms"
+        << ex->req.url;
+
+    // Deliver to every live waiter (a coalesced set may mix live and canceled ones).
+    // Local copy: a callback may start or abort other requests.
+    const std::vector<Waiter> waiters = std::move(ex->waiters);
+    for (const Waiter &w : waiters)
+        if (core::live(w.job)) w.fn(r);
+}
+
+void HttpClient::abort(const core::JobToken &job)
+{
+    std::vector<std::shared_ptr<Exchange>> orphaned;
+    for (const std::shared_ptr<Exchange> &ex : m_exchanges) {
+        std::vector<Waiter> &ws = ex->waiters;
+        ws.erase(std::remove_if(ws.begin(), ws.end(), [&](const Waiter &w) { return w.job == job; }), ws.end());
+        if (ws.empty()) orphaned.push_back(ex);
+    }
+    for (const std::shared_ptr<Exchange> &ex : orphaned) {
+        ex->done = true;
+        if (ex->timer) { m_loop.cancelTimer(ex->timer); ex->timer = 0; }
+        ex->sink->abort();
+        m_transport.cancel(ex->transportId);
+        forget(ex);
+    }
+    // Not-yet-delivered cache hits for `job` are dropped by their live(job) gate.
+}
+
+}
