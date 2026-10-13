@@ -22,7 +22,8 @@ add_library(innertube STATIC
     src/parsers/commentparser.cpp
     src/parsers/accountparser.cpp
     src/parsers/playerparser.cpp
-    src/parsers/suggestparser.cpp)
+    src/parsers/suggestparser.cpp
+    src/innertube/bodies.cpp)
 add_library(innertube::innertube ALIAS innertube)
 set_target_properties(innertube PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(innertube PUBLIC cxx_std_17)
