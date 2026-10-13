@@ -7,21 +7,28 @@ using namespace gj;
 // accountItem objects sit ~7 renderer levels deep and the wrapper chain has shifted
 // before (getMultiPageMenuAction vs openPopupAction); scan recursively instead of
 // hard-coding the path. Captured items are re-scanned so accountItems nested
-// inside one another are still collected (old behavior); the depth cap is a
-// strict robustness improvement over the old uncapped walker.
+// inside one another are still collected (old behavior). Each re-scan starts the
+// scanner's depth counter at 0, so the collector carries the ABSOLUTE depth itself
+// (`base`): without it a chain of nested "accountItem" keys defeated kScanMaxDepth and
+// recursed once per level (stack overflow on a crafted response).
 struct AccountItemCollector {
     std::vector<std::string_view> *out;
+    int base = 0;                                            // depth of the scan's root
     void enter(int) {}
     void leave(int) {}
-    scan::Action what(std::string_view key, int)
+    scan::Action what(std::string_view key, int depth)
     {
+        if (base + depth > kScanMaxDepth) return scan::Action::Skip;
         return key == "accountItem" ? scan::Action::Capture : scan::Action::Descend;
     }
-    void capture(std::string_view, std::string_view value, int)
+    void capture(std::string_view, std::string_view value, int depth)
     {
         if (value.empty() || value.front() != '{') return;   // old is_object() guard
         out->push_back(value);
+        const int saved = base;
+        base += depth + 1;                                   // the value sits one level below its key
         scan::document(value, *this);                        // descend into it too
+        base = saved;
     }
 };
 

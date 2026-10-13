@@ -302,3 +302,16 @@ TEST_CASE("isPlayableStatus") {
     CHECK_FALSE(isPlayable(std::string(payloads::kPlayableLogin), &reason));
     CHECK(reason.find("LOGIN_REQUIRED") != std::string::npos);
 }
+// Security review: AccountItemCollector re-scans every captured accountItem with a
+// fresh depth counter, so a chain of nested "accountItem" keys defeated the scanner's
+// depth cap and recursed once per level — a crafted accounts_list overflowed the stack.
+TEST_CASE("accountsListNestedItemsDepthBounded") {
+    const int n = 200000;
+    std::string deep;
+    deep.reserve(n * 16 + 8);
+    for (int i = 0; i < n; ++i) deep += "{\"accountItem\":";
+    deep += "{}";
+    for (int i = 0; i < n; ++i) deep += "}";
+    const Account a = parseAccountsList(deep);   // must return, not overflow the stack
+    CHECK(a.name.empty());
+}
