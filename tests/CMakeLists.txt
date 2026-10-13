@@ -29,6 +29,7 @@ it_test(tst_parsers)
 it_test(tst_bodies)
 it_test(tst_context)
 it_test(tst_log)
+it_test(tst_loop)
 
 add_test(NAME innertube_no_qt
          COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/no_qt.cmake)
