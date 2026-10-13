@@ -11,7 +11,8 @@ set(INNERTUBE_GLAZE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glaze" CACHE PA
     "Glaze source root (contains include/glaze)")
 
 add_library(innertube STATIC
-    src/version.cpp)
+    src/version.cpp
+    src/innertube/clientconfig.cpp)
 add_library(innertube::innertube ALIAS innertube)
 set_target_properties(innertube PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(innertube PUBLIC cxx_std_17)
