@@ -36,7 +36,7 @@ target_compile_features(innertube PUBLIC cxx_std_17)
 target_compile_options(innertube PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-std=c++23>)
 target_include_directories(innertube
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Glaze: PRIVATE, header-only. Reuse a consumer's `glaze` target if present.
 if(TARGET glaze)
@@ -45,12 +45,41 @@ else()
     target_include_directories(innertube SYSTEM PRIVATE ${INNERTUBE_GLAZE_DIR}/include)
 endif()
 
-# libcurl: a consumer may pre-define CURL::libcurl (MeeTube's N9 build points it at
-# the static curl+wolfSSL archives); otherwise find the system one.
-if(NOT TARGET CURL::libcurl)
-    find_package(CURL 7.68 REQUIRED)
+# HTTP backend (include/yt/transport.h, docs/backends.md):
+#   curl    backends/curl — libcurl multi on the engine thread (default). A consumer
+#           may pre-define CURL::libcurl (MeeTube's N9 build points it at the static
+#           curl+wolfSSL archives); otherwise the system libcurl is found.
+#   none    no backend compiled in: ClientOptions::transport must be supplied.
+#   <path>  your own .cpp defining yt::makeDefaultTransport (+ INNERTUBE_HTTP_BACKEND_LIBS).
+set(INNERTUBE_HTTP_BACKEND "curl" CACHE STRING
+    "HTTP backend: curl, none, or the path of a .cpp defining yt::makeDefaultTransport")
+set(INNERTUBE_HTTP_BACKEND_LIBS "" CACHE STRING "Extra link libraries for a custom backend")
+if(INNERTUBE_HTTP_BACKEND STREQUAL "curl")
+    if(NOT TARGET CURL::libcurl)
+        find_package(CURL 7.68 REQUIRED)
+    endif()
+    target_sources(innertube PRIVATE backends/curl/curltransport.cpp backends/curl/default.cpp)
+    target_link_libraries(innertube PRIVATE CURL::libcurl)
+elseif(INNERTUBE_HTTP_BACKEND STREQUAL "none")
+    target_sources(innertube PRIVATE backends/none/default.cpp)
+else()
+    get_filename_component(_it_backend "${INNERTUBE_HTTP_BACKEND}" ABSOLUTE BASE_DIR "${CMAKE_SOURCE_DIR}")
+    if(NOT EXISTS "${_it_backend}")
+        message(FATAL_ERROR "INNERTUBE_HTTP_BACKEND: no such file: ${INNERTUBE_HTTP_BACKEND}")
+    endif()
+    target_sources(innertube PRIVATE "${_it_backend}")
+    target_link_libraries(innertube PRIVATE ${INNERTUBE_HTTP_BACKEND_LIBS})
 endif()
-target_link_libraries(innertube PUBLIC CURL::libcurl)
+message(STATUS "innertube HTTP backend: ${INNERTUBE_HTTP_BACKEND}")
+
+# What every backend must pass — a plain static lib (no test framework) so backend
+# authors can run it from any test runner.
+add_library(innertube_conformance STATIC conformance/transport_conformance.cpp)
+target_link_libraries(innertube_conformance PUBLIC innertube)
+target_include_directories(innertube_conformance PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(innertube_conformance PRIVATE -std=c++23)
+find_package(Threads REQUIRED)
+target_link_libraries(innertube_conformance PUBLIC Threads::Threads)
 
 if(INNERTUBE_BUILD_TESTS)
     enable_testing()

@@ -13,7 +13,7 @@ function(it_test name)
     add_executable(${name} ${name}.cpp ${_srcs})
     target_link_libraries(${name} PRIVATE innertube innertube_doctest)
     target_compile_options(${name} PRIVATE ${_std})
-    target_include_directories(${name} PRIVATE ${PROJECT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+    target_include_directories(${name} PRIVATE ${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
     if(TARGET glaze)
         target_link_libraries(${name} PRIVATE glaze)
     else()
@@ -36,3 +36,8 @@ it_test(tst_http)
 
 add_test(NAME innertube_no_qt
          COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/no_qt.cmake)
+
+if(INNERTUBE_HTTP_BACKEND STREQUAL "curl")
+    it_test(tst_conformance_curl)
+    target_link_libraries(tst_conformance_curl PRIVATE innertube_conformance)
+endif()

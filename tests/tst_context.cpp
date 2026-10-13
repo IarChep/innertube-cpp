@@ -29,7 +29,8 @@ TEST_CASE("playerClientsOmitVisitorData") {
     CHECK_FALSE(has(ContextBuilder::contextJson(ClientId::IOS, s), "\"visitorData\""));
     CHECK(has(ContextBuilder::contextJson(ClientId::ANDROID_VR, s), "\"visitorData\":\"VD\""));
     CHECK(find(ContextBuilder::headers(ClientId::IOS, s), "X-Goog-Visitor-Id") == nullptr);
-    const Header *vr = find(ContextBuilder::headers(ClientId::ANDROID_VR, s), "X-Goog-Visitor-Id");
+    const std::vector<Header> vrh = ContextBuilder::headers(ClientId::ANDROID_VR, s);
+    const Header *vr = find(vrh, "X-Goog-Visitor-Id");
     REQUIRE(vr != nullptr);
     CHECK(vr->value == "VD");
 }
@@ -50,7 +51,8 @@ TEST_CASE("headersHaveConsentCookieOnEveryClient") {
     Session s;
     for (ClientId id : {ClientId::WEB, ClientId::WEB_SAFARI, ClientId::IOS, ClientId::ANDROID,
                         ClientId::ANDROID_VR, ClientId::TVHTML5}) {
-        const Header *c = find(ContextBuilder::headers(id, s), "Cookie");
+        const std::vector<Header> h = ContextBuilder::headers(id, s);
+        const Header *c = find(h, "Cookie");
         REQUIRE(c != nullptr);
         CHECK(c->value == "SOCS=CAISAiAD");
     }
@@ -65,7 +67,8 @@ TEST_CASE("iosHeaders") {
 }
 TEST_CASE("bearerWhenSet") {
     Session s; s.bearer = "tok";
-    const Header *a = find(ContextBuilder::headers(ClientId::TVHTML5, s), "Authorization");
+    const std::vector<Header> h = ContextBuilder::headers(ClientId::TVHTML5, s);
+    const Header *a = find(h, "Authorization");
     REQUIRE(a != nullptr);
     CHECK(a->value == "Bearer tok");
 }
