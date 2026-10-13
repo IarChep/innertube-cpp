@@ -334,3 +334,47 @@ TEST_CASE("cachedDeliveryAfterDestroyIgnored") {
     f.pump();
     CHECK(b.calls == 0);
 }
+
+// Security review: server-issued values (visitorData, OAuth tokens, Location) reach
+// request headers / request lines; CR/LF/NUL in them would inject headers through any
+// backend. The policy layer refuses them centrally.
+TEST_CASE("visitorDataWithControlCharsNotAdopted") {
+    Fx f;
+    f.ft.script(kBrowse, ok("{\"responseContext\":{\"visitorData\":\"V1\\r\\nX-Evil: 1\"}}"));
+    f.ft.script(kBrowse, ok("{}"));
+    std::vector<std::string> sunk;
+    f.h().setVisitorSink([&](const std::string &v) { sunk.push_back(v); });
+    Got a, b;
+    f.h().post("browse", ClientId::WEB, "{\"browseId\":\"A\"}", yt::core::newJob(), rec(a));
+    f.pump();
+    CHECK(f.h().session().visitorData.empty());
+    CHECK(sunk.empty());
+    f.h().post("browse", ClientId::WEB, "{\"browseId\":\"B\"}", yt::core::newJob(), rec(b));
+    f.pump();
+    REQUIRE(f.ft.started.size() == 2);
+    CHECK(header(f.ft.started[1], "X-Goog-Visitor-Id") == nullptr);
+}
+TEST_CASE("headerValueWithCrLfRefused") {
+    Fx f;
+    f.h().setBearer("T\r\nX-Evil: 1");
+    Got g;
+    f.h().post("browse", ClientId::TVHTML5, "{}", yt::core::newJob(), rec(g));
+    f.pump();
+    CHECK(f.ft.started.empty());
+    CHECK(g.calls == 1);
+    CHECK_FALSE(g.r.ok);
+    CHECK(g.r.code == ErrorCode::Transport);
+}
+TEST_CASE("urlWithControlCharsRefused") {
+    Fx f;
+    Got a, b;
+    f.h().get(std::string("https://a.test/x\r\nX-Evil: 1"), yt::core::newJob(), rec(a));
+    f.ft.script("https://a.test/r", redirect(302, "/y\r\nX-Evil: 1"));
+    f.h().get("https://a.test/r", yt::core::newJob(), rec(b));
+    f.pump();
+    REQUIRE(f.ft.started.size() == 1);              // only the /r request went out
+    CHECK(f.ft.started[0].url == "https://a.test/r");
+    CHECK_FALSE(a.r.ok);
+    CHECK_FALSE(b.r.ok);
+    CHECK(b.r.code == ErrorCode::Transport);
+}

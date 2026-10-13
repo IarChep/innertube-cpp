@@ -54,6 +54,34 @@ bool carriesCredentials(const HttpRequest &r)
 {
     return findHeader(r.headers, "authorization") || findHeader(r.headers, "cookie");
 }
+// Request-line / header hygiene, enforced here for every backend: CR, LF, NUL (any C0
+// control but TAB, and DEL) in a header would let a server-issued value (visitorData,
+// an OAuth token, a redirect Location) inject headers or split the request.
+bool cleanHeaderPart(std::string_view s)
+{
+    for (unsigned char c : s) if ((c < 0x20 && c != '\t') || c == 0x7f) return false;
+    return true;
+}
+// URLs carry no raw spaces/controls at all (servers send them %-encoded).
+bool cleanUrl(std::string_view s)
+{
+    for (unsigned char c : s) if (c <= 0x20 || c == 0x7f) return false;
+    return true;
+}
+bool cleanRequest(const HttpRequest &r)
+{
+    if (!cleanUrl(r.url)) return false;
+    for (const HttpHeader &h : r.headers)
+        if (h.name.empty() || !cleanHeaderPart(h.name) || !cleanHeaderPart(h.value)) return false;
+    return true;
+}
+// visitorData is an opaque base64url-ish token; anything but visible ASCII is refused.
+bool plausibleToken(std::string_view s)
+{
+    if (s.empty()) return false;
+    for (unsigned char c : s) if (c < 0x21 || c > 0x7e) return false;
+    return true;
+}
 bool isRedirect(int status)
 {
     return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
@@ -343,6 +371,21 @@ void HttpClient::postForm(std::string url, core::Form fields, const core::JobTok
 
 void HttpClient::launch(const std::shared_ptr<Exchange> &ex)
 {
+    if (!cleanRequest(ex->req)) {
+        // Asynchronous like every other failure: never re-entrant from post()/get().
+        ex->done = true;
+        forget(ex);
+        const std::vector<Waiter> waiters = std::move(ex->waiters);
+        std::weak_ptr<char> life = m_life;
+        m_loop.post([life, waiters]() {
+            if (life.expired()) return;
+            Reply r;
+            r.code = ErrorCode::Transport;
+            r.error = "invalid request (control characters in URL or header)";
+            for (const Waiter &w : waiters) if (core::live(w.job)) w.fn(r);
+        });
+        return;
+    }
     ex->sink = std::make_shared<HopSink>(m_loop, ex, m_opts.maxBodyBytes);
     if (!ex->timer && m_opts.timeoutMs > 0) {
         std::weak_ptr<Exchange> w = ex;
@@ -433,6 +476,7 @@ void HttpClient::complete(const std::shared_ptr<Exchange> &ex, Reply r)
     // Adopt the server-issued visitorData from the first reply that carries one. The
     // memoized context/headers embed it, so they are rebuilt; the response cache is
     // keyed by the full payload and simply misses for the new identity.
+    if (!r.visitorData.empty() && !plausibleToken(r.visitorData)) r.visitorData.clear();
     if (r.ok && m_session.visitorData.empty() && !r.visitorData.empty()) {
         m_session.visitorData = r.visitorData;
         for (int i = 0; i < kClientCount; ++i) { m_ctxValid[i] = false; m_hdrValid[i] = false; }
