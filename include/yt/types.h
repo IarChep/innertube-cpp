@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <yt/result.h>
 namespace yt {
 struct Video {
     std::string id, title, description, thumbnailUrl, largeThumbnailUrl, date, duration, url,
@@ -32,5 +33,9 @@ struct ChannelPage  { std::vector<Channel> items; std::string next; };
 struct CommentPage  { std::vector<Comment> items; std::string next; std::string createCommentParams; bool disabled = false; };
 struct WatchResult  { Video primary; std::vector<Video> related; };
 struct Votes        { std::optional<int64_t> likes, dislikes; };
+// The two independent outcomes of a /player lookup: streams from the first client
+// that yields any; captions from the first response that carries them (they survive
+// a streams failure).
+struct PlayerInfo   { Result<std::vector<Stream>> streams; Result<std::vector<Subtitle>> captions; };
 }
 #endif

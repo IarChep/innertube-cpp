@@ -1,0 +1,83 @@
+// The engine behind yt::Client: loop + transport + policy layer + session state, plus
+// the dispatch/delivery machinery that implements the public threading contract.
+#ifndef YT_ENGINE_H
+#define YT_ENGINE_H
+#include <yt/client.h>
+#include "core/ihttp.h"
+#include "core/job.h"
+#include "net/loop.h"
+#include <atomic>
+#include <chrono>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+namespace yt::detail {
+
+// Serializes deliveries against ~Client: a delivery runs only while `closed` is false,
+// and the destructor flips it under the same (recursive — a callback may destroy the
+// Client) lock, so no callback runs after the destructor returns.
+struct Gate {
+    std::recursive_mutex mx;
+    bool closed = false;
+};
+
+struct JobHandle {
+    core::JobToken token = core::newJob();
+    std::weak_ptr<Engine> engine;
+    std::atomic<bool> finished{false};
+};
+
+struct Engine : std::enable_shared_from_this<Engine> {
+    using Clock = std::chrono::steady_clock;
+
+    ClientOptions opts;
+    net::Loop loop;
+    std::unique_ptr<HttpTransport> transport;
+    std::shared_ptr<core::IHttp> http;               // the policy layer (or an injected fake)
+    std::string baseUrlOverride;                     // testing: loopback youtubei base
+    std::thread thread;
+    std::shared_ptr<Gate> gate = std::make_shared<Gate>();
+    SessionState state;                              // engine-thread copy of what consumers persist
+    std::function<Clock::time_point()> now = [] { return Clock::now(); };
+    bool torn = false;
+
+    // --- auth (engine thread; see auth.cpp) ---
+    Clock::time_point bearerExpiry{};
+    bool refreshing = false;
+    std::vector<std::function<void()>> afterRefresh;
+    core::JobToken signInJob;                        // the device-code flow in progress
+    std::string deviceCode;
+    int pollIntervalSecs = 5;
+    uint64_t pollTimer = 0;
+
+    // Builds and starts an engine (own thread or inline); throws what setup() throws.
+    static std::shared_ptr<Engine> boot(std::shared_ptr<Engine> e);
+    static std::unique_ptr<Client> makeClient(std::shared_ptr<Engine> e) { return std::unique_ptr<Client>(new Client(std::move(e))); }
+    static Engine *of(Client &c) { return c.m_engine.get(); }
+    static Job makeJob(std::shared_ptr<JobHandle> h) { return Job(std::move(h)); }
+
+    void setup();                                    // engine thread: transport, policy layer, session seed
+    void teardown();                                 // engine thread: policy layer, then transport
+
+    // Run `fn` through the consumer's executor, gated on the Client still existing and
+    // the job still being live (gate checked ON the delivery thread).
+    void deliver(const std::shared_ptr<JobHandle> &h, std::function<void()> fn);
+    void notifyState();                              // onStateChanged(state) through the executor
+
+    // Post `chain` onto the engine thread; deliver its result to `cb`. Auth-aware: waits
+    // for a fresh bearer when signed in, retries once on HTTP 401 (auth.cpp).
+    template <class Arg>
+    Job start(std::function<void(core::IHttp &, const core::JobToken &, std::function<void(const Arg &)>)> chain,
+              std::function<void(const Arg &)> cb);
+
+    // auth.cpp
+    void ensureBearer(std::function<void()> run);
+    void refreshBearer();
+    bool signedIn() const { return !state.refreshToken.empty(); }
+};
+
+}
+#endif

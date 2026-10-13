@@ -36,6 +36,8 @@ it_test(tst_http)
 it_test(tst_fakehttp)
 it_test(tst_chains)
 it_test(tst_catalog)
+it_test(tst_client)
+target_link_libraries(tst_client PRIVATE innertube_conformance)
 
 add_test(NAME innertube_no_qt
          COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/no_qt.cmake)

@@ -24,10 +24,6 @@ struct VideoListSpec {
 };
 enum ActionKind { Subscribe, Unsubscribe, Like, Dislike, RemoveLike };
 
-// The two independent outcomes of the /player ladder: streams from the first client
-// that yields any; captions from the first response that carries them (they survive
-// a streams failure).
-struct PlayerInfo { Result<std::vector<Stream>> streams; Result<std::vector<Subtitle>> captions; };
 struct DeviceCodeGrant { std::string deviceCode, userCode, verificationUrl; int intervalSecs = 5; };
 struct TokenGrant {
     std::string accessToken, refreshToken, error;
