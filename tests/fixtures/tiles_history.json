@@ -1,0 +1,85 @@
+{
+  "contents": {
+    "sectionListRenderer": {
+      "contents": [
+        {
+          "shelfRenderer": {
+            "content": {
+              "gridRenderer": {
+                "items": [
+                  {
+                    "tileRenderer": {
+                      "contentId": "u7OQ7kKBEHs",
+                      "contentType": "TILE_CONTENT_TYPE_VIDEO",
+                      "header": {
+                        "tileHeaderRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              { "url": "https://i.ytimg.com/vi/u7OQ7kKBEHs/mqdefault.jpg", "width": 320, "height": 180 },
+                              { "url": "https://i.ytimg.com/vi/u7OQ7kKBEHs/sddefault.jpg", "width": 640, "height": 480 }
+                            ]
+                          },
+                          "thumbnailOverlays": [
+                            { "thumbnailOverlayResumePlaybackRenderer": { "percentDurationWatched": 100 } },
+                            { "thumbnailOverlayTimeStatusRenderer": { "style": "DEFAULT", "text": { "simpleText": "0:59" } } }
+                          ]
+                        }
+                      },
+                      "metadata": {
+                        "tileMetadataRenderer": {
+                          "title": { "simpleText": "What if You Encounter an ENEMY" },
+                          "lines": [
+                            { "lineRenderer": { "items": [ { "lineItemRenderer": { "text": { "runs": [ { "text": "kesMadgik" } ] } } } ] } },
+                            { "lineRenderer": { "items": [ { "lineItemRenderer": { "text": { "simpleText": "350K views" } } } ] } }
+                          ]
+                        }
+                      },
+                      "onSelectCommand": {
+                        "watchEndpoint": { "videoId": "u7OQ7kKBEHs" }
+                      }
+                    }
+                  },
+                  {
+                    "tileRenderer": {
+                      "contentId": "UCsomeChannel",
+                      "contentType": "TILE_CONTENT_TYPE_CHANNEL",
+                      "metadata": {
+                        "tileMetadataRenderer": { "title": { "simpleText": "Some Channel" } }
+                      }
+                    }
+                  },
+                  {
+                    "tileRenderer": {
+                      "contentId": "dQw4w9WgXcQ",
+                      "contentType": "TILE_CONTENT_TYPE_VIDEO",
+                      "header": {
+                        "tileHeaderRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              { "url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg", "width": 320, "height": 180 }
+                            ]
+                          }
+                        }
+                      },
+                      "metadata": {
+                        "tileMetadataRenderer": {
+                          "title": { "runs": [ { "text": "Second Video" } ] },
+                          "lines": [
+                            { "lineRenderer": { "items": [ { "lineItemRenderer": { "text": { "runs": [ { "text": "Channel B" } ] } } } ] } }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "continuations": [
+      { "nextContinuationData": { "continuation": "TILE_NEXT_PAGE" } }
+    ]
+  }
+}

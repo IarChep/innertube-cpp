@@ -25,6 +25,7 @@ endfunction()
 
 it_test(tst_smoke)
 it_test(tst_types STD17)
+it_test(tst_parsers)
 
 add_test(NAME innertube_no_qt
          COMMAND ${CMAKE_COMMAND} -DROOT=${PROJECT_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/no_qt.cmake)

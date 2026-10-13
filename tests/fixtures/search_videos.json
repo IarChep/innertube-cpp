@@ -1,0 +1,18 @@
+{ "contents": { "twoColumnSearchResultsRenderer": { "primaryContents": { "sectionListRenderer": { "contents": [
+  { "itemSectionRenderer": { "contents": [
+    { "videoRenderer": {
+        "videoId": "aaa11111111",
+        "title": { "runs": [ { "text": "First Video" } ] },
+        "ownerText": { "runs": [ { "text": "Chan A" } ] },
+        "lengthText": { "simpleText": "3:21" },
+        "viewCountText": { "simpleText": "1,234 views" },
+        "thumbnail": { "thumbnails": [ { "url": "https://i.ytimg.com/vi/aaa11111111/hqdefault.jpg" } ] } } },
+    { "videoRenderer": {
+        "videoId": "bbb22222222",
+        "title": { "simpleText": "Second Video" },
+        "ownerText": { "runs": [ { "text": "Chan B" } ] },
+        "lengthText": { "simpleText": "10:00" },
+        "thumbnail": { "thumbnails": [ { "url": "https://i.ytimg.com/vi/bbb22222222/hqdefault.jpg" } ] } } }
+  ] } },
+  { "continuationItemRenderer": { "continuationEndpoint": { "continuationCommand": { "token": "NEXTPAGE" } } } }
+] } } } } }

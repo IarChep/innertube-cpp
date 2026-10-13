@@ -1,0 +1,105 @@
+{
+ "playabilityStatus": {
+  "status": "OK"
+ },
+ "videoDetails": {
+  "videoId": "aaa11111111",
+  "title": "First Video",
+  "author": "Chan A",
+  "channelId": "UCxxxx",
+  "lengthSeconds": "201",
+  "viewCount": "1234",
+  "thumbnail": {
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/aaa11111111/hqdefault.jpg"
+    }
+   ]
+  },
+  "shortDescription": "hello"
+ },
+ "streamingData": {
+  "hlsManifestUrl": "https://manifest.example/master.m3u8",
+  "formats": [
+   {
+    "itag": 18,
+    "url": "https://gv.example/vid18",
+    "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"",
+    "qualityLabel": "360p",
+    "width": 640,
+    "height": 360,
+    "bitrate": 500000
+   }
+  ],
+  "adaptiveFormats": [
+   {
+    "itag": 137,
+    "url": "https://gv.example/vid137",
+    "mimeType": "video/mp4; codecs=\"avc1.640028\"",
+    "qualityLabel": "1080p",
+    "width": 1920,
+    "height": 1080,
+    "bitrate": 4000000
+   },
+   {
+    "itag": 298,
+    "url": "https://gv.example/vid298",
+    "mimeType": "video/mp4; codecs=\"avc1.4d4020\"",
+    "qualityLabel": "720p60",
+    "width": 1280,
+    "height": 720,
+    "bitrate": 2500000
+   },
+   {
+    "itag": 136,
+    "url": "https://gv.example/vid136",
+    "mimeType": "video/mp4; codecs=\"avc1.4d401f\"",
+    "qualityLabel": "720p",
+    "width": 1280,
+    "height": 720,
+    "bitrate": 1500000
+   },
+   {
+    "itag": 244,
+    "url": "https://gv.example/vid244",
+    "mimeType": "video/webm; codecs=\"vp9\"",
+    "qualityLabel": "480p",
+    "width": 854,
+    "height": 480,
+    "bitrate": 800000
+   },
+   {
+    "itag": 398,
+    "url": "https://gv.example/vid398",
+    "mimeType": "video/mp4; codecs=\"av01.0.08M.08\"",
+    "qualityLabel": "720p",
+    "width": 1280,
+    "height": 720,
+    "bitrate": 700000
+   },
+   {
+    "itag": 135,
+    "url": "https://gv.example/vid135",
+    "mimeType": "video/mp4; codecs=\"avc1.4d401e\"",
+    "qualityLabel": "480p",
+    "width": 854,
+    "height": 480,
+    "bitrate": 900000
+   },
+   {
+    "itag": 140,
+    "url": "https://gv.example/aud140",
+    "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+    "bitrate": 130000,
+    "audioQuality": "AUDIO_QUALITY_MEDIUM"
+   },
+   {
+    "itag": 251,
+    "url": "https://gv.example/aud251",
+    "mimeType": "audio/webm; codecs=\"opus\"",
+    "bitrate": 140000,
+    "audioQuality": "AUDIO_QUALITY_MEDIUM"
+   }
+  ]
+ }
+}

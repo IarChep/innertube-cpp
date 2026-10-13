@@ -1,0 +1,71 @@
+{
+  "contents": {
+    "twoColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "content": {
+              "richGridRenderer": {
+                "contents": [
+                  {
+                    "richItemRenderer": {
+                      "content": {
+                        "lockupViewModel": {
+                          "contentId": "PLOU2XLYxmsIJ78oALT6XEKLHNFEggOI75",
+                          "contentType": "LOCKUP_CONTENT_TYPE_PLAYLIST",
+                          "contentImage": {
+                            "collectionThumbnailViewModel": {
+                              "primaryThumbnail": {
+                                "thumbnailViewModel": {
+                                  "image": {
+                                    "sources": [
+                                      { "url": "https://i.ytimg.com/vi/YFJZk4H_Bk4/mqdefault.jpg", "width": 320, "height": 180 },
+                                      { "url": "https://i.ytimg.com/vi/YFJZk4H_Bk4/hqdefault.jpg", "width": 480, "height": 270 }
+                                    ]
+                                  },
+                                  "overlays": [
+                                    {
+                                      "thumbnailOverlayBadgeViewModel": {
+                                        "thumbnailBadges": [
+                                          { "thumbnailBadgeViewModel": { "text": "5 videos" } }
+                                        ]
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "metadata": {
+                            "lockupMetadataViewModel": {
+                              "title": { "content": "GDG Inspiring Stories" }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "richItemRenderer": {
+                      "content": {
+                        "lockupViewModel": {
+                          "contentId": "vidNotAPlaylist",
+                          "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+                          "metadata": {
+                            "lockupMetadataViewModel": {
+                              "title": { "content": "A stray video lockup" }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

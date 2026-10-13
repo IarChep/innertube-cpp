@@ -1,0 +1,48 @@
+{
+  "contents": {
+    "twoColumnWatchNextResults": {
+      "results": {
+        "results": {
+          "contents": [
+            {
+              "videoPrimaryInfoRenderer": {
+                "title": { "simpleText": "The Title" },
+                "viewCount": {
+                  "videoViewCountRenderer": {
+                    "viewCount": { "simpleText": "1,234 views" }
+                  }
+                },
+                "videoActions": {
+                  "menuRenderer": {
+                    "topLevelButtons": [
+                      { "toggleButtonRenderer": { "defaultText": { "simpleText": "9.9K" } } }
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "videoSecondaryInfoRenderer": {
+                "owner": {
+                  "videoOwnerRenderer": {
+                    "title": { "runs": [ { "text": "Creator" } ] },
+                    "thumbnail": { "thumbnails": [ { "url": "https://a/av.jpg" } ] },
+                    "navigationEndpoint": { "browseEndpoint": { "browseId": "UCowner" } }
+                  }
+                },
+                "attributedDescription": { "content": "Hello description" }
+              }
+            }
+          ]
+        }
+      },
+      "secondaryResults": {
+        "secondaryResults": {
+          "results": [
+            { "compactVideoRenderer": { "videoId": "rel1", "title": { "simpleText": "Rel One" } } }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,86 @@
+{
+ "playabilityStatus": {
+  "status": "OK"
+ },
+ "videoDetails": {
+  "videoId": "aaa11111111",
+  "title": "First Video",
+  "author": "Chan A",
+  "channelId": "UCxxxx",
+  "lengthSeconds": "201",
+  "viewCount": "1234",
+  "thumbnail": {
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/aaa11111111/hqdefault.jpg"
+    }
+   ]
+  },
+  "shortDescription": "hello"
+ },
+ "streamingData": {
+  "hlsManifestUrl": "https://manifest.googlevideo.com/api/manifest/hls_variant/x/file/index.m3u8",
+  "formats": [
+   {
+    "itag": 18,
+    "url": "https://rr1---x.googlevideo.com/v?itag=18&n=N1",
+    "qualityLabel": "360p",
+    "width": 640,
+    "height": 360
+   },
+   {
+    "itag": 22,
+    "url": "https://rr1---x.googlevideo.com/v?itag=22&n=N2",
+    "qualityLabel": "720p",
+    "width": 1280,
+    "height": 720
+   },
+   {
+    "itag": 137,
+    "signatureCipher": "s=abc&sp=sig&url=https://x",
+    "qualityLabel": "1080p",
+    "width": 1920,
+    "height": 1080
+   }
+  ],
+  "adaptiveFormats": [
+   {
+    "itag": 137,
+    "mimeType": "video/mp4; codecs=\"avc1.640028\"",
+    "url": "https://gv.example/vid137",
+    "width": 1920,
+    "height": 1080
+   },
+   {
+    "itag": 251,
+    "mimeType": "audio/webm; codecs=\"opus\"",
+    "url": "https://gv.example/aud251"
+   },
+   {
+    "itag": 140,
+    "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+    "url": "https://gv.example/aud140"
+   }
+  ]
+ },
+ "captions": {
+  "playerCaptionsTracklistRenderer": {
+   "captionTracks": [
+    {
+     "baseUrl": "https://www.youtube.com/api/timedtext?lang=en",
+     "languageCode": "en",
+     "name": {
+      "simpleText": "English"
+     }
+    },
+    {
+     "baseUrl": "https://www.youtube.com/api/timedtext?lang=es",
+     "languageCode": "es",
+     "name": {
+      "simpleText": "Spanish"
+     }
+    }
+   ]
+  }
+ }
+}

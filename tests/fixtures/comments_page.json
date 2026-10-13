@@ -1,0 +1,15 @@
+{ "frameworkUpdates": { "entityBatchUpdate": { "mutations": [
+  { "payload": { "commentEntityPayload": {
+      "properties": { "content": { "content": "Nice video" }, "publishedTime": "2 days ago" },
+      "author": { "displayName": "Alice" },
+      "avatar": { "image": { "sources": [ { "url": "https://yt3.ggpht.com/a.jpg" } ] } } } } },
+  { "payload": { "commentEntityPayload": {
+      "properties": { "content": { "content": "Second!" }, "publishedTime": "1 day ago" },
+      "author": { "displayName": "Bob" },
+      "avatar": { "image": { "sources": [ { "url": "https://yt3.ggpht.com/b.jpg" } ] } } } } },
+  { "payload": { "commentEntityPayload": {
+      "author": { "displayName": "Empty" } } } }
+] } },
+  "onResponseReceivedEndpoints": [ { "reloadContinuationItemsCommand": { "continuationItems": [
+    { "continuationItemRenderer": { "continuationEndpoint": { "continuationCommand": { "token": "MORE_COMMENTS" } } } }
+  ] } } ] }

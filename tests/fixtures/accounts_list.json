@@ -1,0 +1,47 @@
+{
+  "actions": [
+    {
+      "getMultiPageMenuAction": {
+        "menu": {
+          "multiPageMenuRenderer": {
+            "sections": [
+              {
+                "accountSectionListRenderer": {
+                  "contents": [
+                    {
+                      "accountItemSectionRenderer": {
+                        "contents": [
+                          {
+                            "accountItem": {
+                              "accountName": { "simpleText": "Ivan Petrov" },
+                              "channelHandle": { "simpleText": "@ivanpetrov" },
+                              "accountPhoto": {
+                                "thumbnails": [
+                                  { "url": "https://yt3.example/small.jpg", "width": 32, "height": 32 },
+                                  { "url": "https://yt3.example/big.jpg", "width": 88, "height": 88 }
+                                ]
+                              },
+                              "isSelected": true,
+                              "serviceEndpoint": {
+                                "selectActiveIdentityEndpoint": {
+                                  "supportedTokens": [
+                                    { "accountStateToken": { "hasChannel": true } },
+                                    { "offlineCacheKeyToken": { "clientCacheKey": "abc123def" } }
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

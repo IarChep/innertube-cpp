@@ -1,0 +1,53 @@
+{
+  "header": {
+    "pageHeaderRenderer": {
+      "content": {
+        "pageHeaderViewModel": {
+          "title": { "dynamicTextViewModel": { "text": { "content": "Google for Developers" } } },
+          "image": {
+            "decoratedAvatarViewModel": {
+              "avatar": {
+                "avatarViewModel": {
+                  "image": {
+                    "sources": [
+                      { "url": "http://a/s48.jpg" },
+                      { "url": "http://a/s160.jpg" }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "banner": {
+            "imageBannerViewModel": {
+              "image": {
+                "sources": [
+                  { "url": "http://b/banner960.jpg" },
+                  { "url": "http://b/banner1600.jpg" }
+                ]
+              }
+            }
+          },
+          "metadata": {
+            "contentMetadataViewModel": {
+              "metadataRows": [
+                { "metadataParts": [ { "text": { "content": "@GoogleDevelopers" } } ] },
+                { "metadataParts": [
+                    { "text": { "content": "2.66M subscribers" } },
+                    { "text": { "content": "6K videos" } }
+                ] }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "channelMetadataRenderer": {
+      "externalId": "UCabc",
+      "title": "Google for Developers",
+      "description": "desc"
+    }
+  }
+}

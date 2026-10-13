@@ -1,0 +1,12 @@
+{ "contents": { "twoColumnBrowseResultsRenderer": { "tabs": [ { "tabRenderer": { "content": {
+  "richGridRenderer": { "contents": [
+    { "richItemRenderer": { "content": { "videoRenderer": {
+        "videoId": "ccc33333333", "title": { "runs": [ { "text": "Feed One" } ] },
+        "ownerText": { "runs": [ { "text": "Chan C" } ] }, "lengthText": { "simpleText": "5:00" },
+        "thumbnail": { "thumbnails": [ { "url": "https://i.ytimg.com/vi/ccc33333333/hqdefault.jpg" } ] } } } } },
+    { "richItemRenderer": { "content": { "videoRenderer": {
+        "videoId": "ddd44444444", "title": { "runs": [ { "text": "Feed Two" } ] },
+        "ownerText": { "runs": [ { "text": "Chan D" } ] }, "lengthText": { "simpleText": "6:00" },
+        "thumbnail": { "thumbnails": [ { "url": "https://i.ytimg.com/vi/ddd44444444/hqdefault.jpg" } ] } } } } },
+    { "continuationItemRenderer": { "continuationEndpoint": { "continuationCommand": { "token": "FEEDNEXT" } } } }
+  ] } } } } ] } } }
