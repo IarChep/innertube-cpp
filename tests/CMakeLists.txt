@@ -1,0 +1,26 @@
+add_library(innertube_doctest STATIC doctest.cpp)
+target_include_directories(innertube_doctest PUBLIC ${PROJECT_SOURCE_DIR}/third_party/doctest)
+
+# it_test(name [STD17] [extra sources...]) — one doctest suite. STD17 compiles the
+# suite at C++17 (public-header checks); otherwise C++23 like the library.
+function(it_test name)
+    set(_std -std=c++23)
+    set(_srcs ${ARGN})
+    if(_srcs AND "${ARGV1}" STREQUAL "STD17")
+        set(_std -std=c++17)
+        list(REMOVE_AT _srcs 0)
+    endif()
+    add_executable(${name} ${name}.cpp ${_srcs})
+    target_link_libraries(${name} PRIVATE innertube innertube_doctest)
+    target_compile_options(${name} PRIVATE ${_std})
+    target_include_directories(${name} PRIVATE ${PROJECT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+    if(TARGET glaze)
+        target_link_libraries(${name} PRIVATE glaze)
+    else()
+        target_include_directories(${name} SYSTEM PRIVATE ${INNERTUBE_GLAZE_DIR}/include)
+    endif()
+    target_compile_definitions(${name} PRIVATE IT_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME ${name} COMMAND ${name})
+endfunction()
+
+it_test(tst_smoke)
