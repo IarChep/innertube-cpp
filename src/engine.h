@@ -48,6 +48,7 @@ struct Engine : std::enable_shared_from_this<Engine> {
 
     // --- auth (engine thread; see auth.cpp) ---
     Clock::time_point bearerExpiry{};
+    uint64_t authGen = 0;                            // bumped on every identity change (sign-in/out)
     bool refreshing = false;
     std::vector<std::function<void()>> afterRefresh;
     std::shared_ptr<JobHandle> signInJob;            // the device-code flow in progress

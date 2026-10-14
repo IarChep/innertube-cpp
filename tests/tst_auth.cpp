@@ -197,3 +197,34 @@ TEST_CASE("cancel signIn stops polling") {
     CHECK(r.f->sentForm.size() == 1);                 // no token polls after cancel
     CHECK_FALSE(done);
 }
+
+// Security review + final review I3: a refresh still in flight when the identity
+// changes must not reinstall the old account's bearer.
+TEST_CASE("a refresh completing after signOut does not reinstall the old bearer") {
+    Rig r("R");
+    r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A1\",\"expires_in\":3600}");
+    r.f->queue("browse", "{}");
+    r.c->browse({"FEsubscriptions", "", ""}, [](const yt::Result<yt::VideoPage> &) {});
+    r.c->runOnce(0);                                  // the refresh is now in flight
+    REQUIRE(r.f->sentForm.size() == 1);
+    r.c->auth().signOut();
+    r.c->runOnce(0);                                  // sign-out lands first
+    r.pump();                                         // then the stale grant arrives
+    CHECK(r.f->session().bearer.empty());
+    CHECK_FALSE(r.c->auth().signedIn());
+}
+// Security review: a grant without a refresh token used to keep the previous account's
+// refresh token next to the new account's bearer — the next refresh flipped identity.
+TEST_CASE("a grant without a refresh token fails and keeps the previous identity") {
+    Rig r("R_A");
+    r.f->queue(yt::Catalog::kDeviceCodeUrl, "{\"device_code\":\"D\",\"user_code\":\"U\",\"verification_url\":\"V\",\"interval\":1}");
+    r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"B\",\"expires_in\":3600}");
+    bool done = false; yt::Result<yt::Done> res;
+    r.c->auth().signIn([](const yt::DeviceCode &) {}, [&](const yt::Result<yt::Done> &x) { res = x; done = true; });
+    r.pumpFor(5000, [&] { return done; });
+    REQUIRE(done);
+    CHECK_FALSE(res.ok());
+    CHECK(r.f->session().bearer != "B");
+    CHECK(r.c->auth().signedIn());                    // still account A
+    for (const yt::SessionState &s : r.states) CHECK(s.refreshToken == "R_A");
+}

@@ -27,9 +27,12 @@ void Engine::ensureBearer(std::function<void()> run)
 void Engine::refreshBearer()
 {
     refreshing = true;
-    core::oauthRefresh(*http, state.refreshToken, core::newJob(), [this](const core::TokenGrant &g) {
+    const uint64_t gen = authGen;                    // the identity this refresh is for
+    core::oauthRefresh(*http, state.refreshToken, core::newJob(), [this, gen](const core::TokenGrant &g) {
         refreshing = false;
-        if (!g.accessToken.empty() && http) {
+        // A sign-out / new sign-in happened meanwhile: the grant belongs to the old
+        // identity and must not be installed.
+        if (gen == authGen && !g.accessToken.empty() && http) {
             http->setBearer(g.accessToken);
             bearerExpiry = now() + std::chrono::seconds(g.expiresInSecs > 0 ? g.expiresInSecs : kDefaultTokenSecs);
         }
@@ -67,10 +70,21 @@ void Engine::pollToken(const std::shared_ptr<JobHandle> &h, Callback<Done> onDon
     if (!core::live(h->token) || !http || signInJob != h) return;
     core::oauthPollToken(*http, deviceCode, h->token, [this, h, onDone](const core::TokenGrant &g) {
         if (!core::live(h->token) || signInJob != h) return;
+        if (!g.accessToken.empty() && g.refreshToken.empty()) {
+            // Without a refresh token the new identity cannot be kept; installing its
+            // bearer next to the previous account's refresh token would mix identities.
+            deviceCode.clear();
+            signInJob.reset();
+            Result<Done> out;
+            out.error = Error{ErrorCode::Api, "token grant carried no refresh token", g.httpStatus};
+            deliver(h, [onDone, out]() { onDone(out); });
+            return;
+        }
         if (!g.accessToken.empty()) {
+            ++authGen;
             http->setBearer(g.accessToken);
             bearerExpiry = now() + std::chrono::seconds(g.expiresInSecs > 0 ? g.expiresInSecs : kDefaultTokenSecs);
-            if (!g.refreshToken.empty()) state.refreshToken = g.refreshToken;
+            state.refreshToken = g.refreshToken;
             // The real identity comes from Client::account(); this is the placeholder
             // single-account record the refresh token is filed under.
             Account placeholder;
@@ -104,6 +118,7 @@ void Engine::signOut()
 {
     if (signInJob) { signInJob->token->canceled = true; signInJob.reset(); }
     if (pollTimer) { loop.cancelTimer(pollTimer); pollTimer = 0; }
+    ++authGen;                                       // an in-flight refresh is now stale
     state.refreshToken.clear();
     state.account.reset();
     signedInFlag = false;

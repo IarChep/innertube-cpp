@@ -378,3 +378,23 @@ TEST_CASE("urlWithControlCharsRefused") {
     CHECK_FALSE(b.r.ok);
     CHECK(b.r.code == ErrorCode::Transport);
 }
+
+// Security review: a response still in flight when the identity changes (clearCache on
+// sign-in/sign-out) must not be served to the new identity — neither by coalescing nor
+// from the cache.
+TEST_CASE("responses in flight across clearCache are neither coalesced nor cached") {
+    Fx f;
+    f.ft.script(kBrowse, ok("{\"who\":\"A\"}"));
+    f.ft.script(kBrowse, ok("{\"who\":\"B\"}"));
+    Got a, b, c;
+    f.h().post("browse", ClientId::WEB, "{\"browseId\":\"FEx\"}", yt::core::newJob(), rec(a));
+    f.h().clearCache();                               // identity changed while A is in flight
+    f.h().post("browse", ClientId::WEB, "{\"browseId\":\"FEx\"}", yt::core::newJob(), rec(b));
+    f.pump();
+    CHECK(f.ft.started.size() == 2);                  // B did not join A's exchange
+    CHECK(*b.r.body == "{\"who\":\"B\"}");
+    f.h().post("browse", ClientId::WEB, "{\"browseId\":\"FEx\"}", yt::core::newJob(), rec(c));
+    f.pump();
+    CHECK(f.ft.started.size() == 2);                  // served from cache...
+    CHECK(*c.r.body == "{\"who\":\"B\"}");            // ...and it is B's, never A's
+}

@@ -170,6 +170,7 @@ struct HttpClient::Exchange {
     std::shared_ptr<HopSink> sink;
     uint64_t timer = 0;
     bool done = false;
+    uint64_t gen = 0;                      // HttpClient::m_gen when the exchange started
     Loop::Clock::time_point t0 = Loop::Clock::now();
 };
 
@@ -231,6 +232,10 @@ HttpClient::~HttpClient()
 
 void HttpClient::clearCache()
 {
+    // clearCache marks an identity change (sign-in/out, locale): bump the generation so
+    // exchanges still in flight are neither joined by new requests nor cached.
+    ++m_gen;
+    m_inflightByKey.clear();
     m_cache.clear();
     m_cacheOrder.clear();
     for (int i = 0; i < kClientCount; ++i) { m_ctxValid[i] = false; m_hdrValid[i] = false; }
@@ -264,6 +269,7 @@ std::shared_ptr<HttpClient::Exchange> HttpClient::newExchange(HttpRequest req, c
 {
     std::shared_ptr<Exchange> ex = std::make_shared<Exchange>();
     ex->owner = this;
+    ex->gen = m_gen;
     ex->req = std::move(req);
     ex->waiters.push_back({std::move(job), std::move(fn)});
     m_exchanges.push_back(ex);
@@ -465,7 +471,7 @@ void HttpClient::complete(const std::shared_ptr<Exchange> &ex, Reply r)
     if (ex->timer) { m_loop.cancelTimer(ex->timer); ex->timer = 0; }
     forget(ex);
 
-    if (r.ok && !ex->cacheKey.empty() && ex->ttlSecs > 0) {
+    if (r.ok && !ex->cacheKey.empty() && ex->ttlSecs > 0 && ex->gen == m_gen) {
         if (!m_cache.count(ex->cacheKey)) m_cacheOrder.push_back(ex->cacheKey);
         m_cache[ex->cacheKey] = CacheEntry{r.body, Loop::Clock::now() + std::chrono::seconds(ex->ttlSecs)};
         while (m_cacheOrder.size() > kMaxCacheEntries) {

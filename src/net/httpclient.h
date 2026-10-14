@@ -73,6 +73,7 @@ private:
     Session m_session;
     std::function<void(const std::string &)> m_visitorSink;
     std::shared_ptr<char> m_life = std::make_shared<char>(0);   // weak-captured by posted closures
+    uint64_t m_gen = 0;                                         // identity generation (bumped by clearCache)
     std::vector<std::shared_ptr<Exchange>> m_exchanges;         // in flight
     std::unordered_map<std::string, std::weak_ptr<Exchange>> m_inflightByKey;   // coalescing
     std::unordered_map<std::string, CacheEntry> m_cache;
