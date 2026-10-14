@@ -1,5 +1,5 @@
 #include "bodies.h"
-#include "parsers/ytjson.h"
+#include "json/ytjson.h"
 
 namespace yt {
 namespace bodies {

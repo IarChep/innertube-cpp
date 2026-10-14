@@ -8,8 +8,8 @@
 // (COMDAT-folded by the linker) with no duplicate-symbol / unused-static churn.
 //
 #include "rendererparser.h"
-#include "tokenscan.h"
-#include "jsonscan.h"
+#include "json/tokenscan.h"
+#include "json/jsonscan.h"
 #include "textmatch.h"
 #include <map>
 #include <vector>

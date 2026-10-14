@@ -1,6 +1,6 @@
 #include "contextbuilder.h"
 #include "catalog.h"
-#include "parsers/ytjson.h"
+#include "json/ytjson.h"
 namespace yt {
 
 // The context block, typed (Glaze reflection; nullopt fields are omitted).

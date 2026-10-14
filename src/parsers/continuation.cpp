@@ -1,6 +1,6 @@
 #include "continuation.h"
-#include "tokenscan.h"
-#include "jsonscan.h"
+#include "json/tokenscan.h"
+#include "json/jsonscan.h"
 namespace yt {
 
 using namespace gj;

@@ -19,7 +19,7 @@ verdicts below are per directory.
 | Dir | LOC | Qt coupling today | What it really is | Verdict |
 |---|---|---|---|---|
 | `types/` | 76 | `QString`/`QList`/`qint64` fields + `Q_DECLARE_METATYPE` | value types | **lib** (std types); Qt types survive only in the bridge as row types |
-| `parsers/` | 2336 | **thin**: the engine is already Glaze + a Qt-free single-pass scanner (`jsonscan.h`, `tokenscan.h`, `ytjson.h` have zero Qt); outputs are `QString`/`QList`; `QRegExp` ×3 in `rendererinternal.h` (digits filter, `h:mm:ss` match, 4-digit year) | the product's crown jewel | **lib** — mechanical port |
+| `parsers/` | 2336 | **thin**: the engine is already Glaze + a Qt-free single-pass scanner (`json/jsonscan.h`, `json/tokenscan.h`, `json/ytjson.h` have zero Qt); outputs are `QString`/`QList`; `QRegExp` ×3 in `rendererinternal.h` (digits filter, `h:mm:ss` match, 4-digit year) | the product's crown jewel | **lib** — mechanical port |
 | `requests/` | 213 | `QString` params only | POST body builders (Glaze) | **lib** — mechanical |
 | `core/` | 1434 | `job.h`/`status.h`: none. `chains.*`: `QString`/`QList`/`QMap`/`QUrl::toPercentEncoding`. `http.*`: `QObject`, QNAM, `QTimer`, `QHash`, `QCryptographicHash`(md5), `QDateTime`, thread-affinity asserts. `debuglog.*`: `QDebug`, `qgetenv("MEETUBE_DEBUG")` | request layer + transport + logging | chains/http logic → **lib**; QNAM/QTimer plumbing → **replaced** |
 | `threading/` | 142 | `QThread` + `QEvent` posted closures | the one cross-thread seam | worker side → **lib** (own loop thread); GUI-side dispatcher → **bridge** |

@@ -1,5 +1,5 @@
 #include "suggestparser.h"
-#include "ytjson.h"
+#include "json/ytjson.h"
 #include <vector>
 #include <string>
 

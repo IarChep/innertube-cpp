@@ -6,11 +6,11 @@
 #include "innertube/bodies.h"
 #include "innertube/catalog.h"
 #include "innertube/clientconfig.h"
+#include "json/ytjson.h"
 #include "parsers/continuation.h"
 #include "parsers/playerparser.h"
 #include "parsers/rendererparser.h"
 #include "parsers/suggestparser.h"
-#include "parsers/ytjson.h"
 #include <memory>
 
 namespace yt::core {

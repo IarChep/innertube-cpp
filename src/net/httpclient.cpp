@@ -1,9 +1,9 @@
 #include "net/httpclient.h"
 #include "core/log.h"
 #include "innertube/contextbuilder.h"
+#include "json/jsonscan.h"
+#include "json/ytjson.h"
 #include "net/url.h"
-#include "parsers/jsonscan.h"
-#include "parsers/ytjson.h"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
