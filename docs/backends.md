@@ -16,7 +16,7 @@ is *policy* stays in the library (`net::HttpClient`), so no backend can weaken i
 | Concern | Owner | How |
 |---|---|---|
 | Allowed schemes (http/https only — SSRF guard) | library | checked before `start()` and on every redirect hop |
-| Redirects (bounded, never with `Authorization`/`Cookie`, 303 → GET) | library | backends **must not** follow redirects; deliver the 3xx as is |
+| Redirects (bounded; only credential-free GETs follow — never with `Authorization`/`Cookie`, never for POSTs, whose bodies may carry OAuth secrets) | library | backends **must not** follow redirects; deliver the 3xx as is |
 | Control characters in URLs / header values | library | requests carrying CR/LF/NUL are refused before `start()` |
 | Body cap | library | `onBody()` returns `false` → the backend aborts |
 | Timeouts | library | engine-loop timer → `cancel()` |

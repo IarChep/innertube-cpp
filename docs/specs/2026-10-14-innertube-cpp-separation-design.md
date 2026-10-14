@@ -283,7 +283,7 @@ how it ended. Everything that is *policy* stays in the library so no backend can
 | Concern | Owner | How |
 |---|---|---|
 | Allowed schemes (http/https only — SSRF guard) | library | checked before `start()` and on every redirect hop |
-| Redirects (bounded, never with `Authorization`/`Cookie`, 303 → GET) | library | backends **must not** follow redirects; 3xx is delivered as is |
+| Redirects (bounded; only credential-free GETs follow — never with `Authorization`/`Cookie`, never for POSTs, whose bodies may carry OAuth secrets) | library | backends **must not** follow redirects; 3xx is delivered as is |
 | Body cap (32 MB) | library | `onBody()` returns `false` → backend aborts |
 | Timeouts | library | engine-loop timer → `cancel()` → `ErrorCode::Timeout` |
 | Cancellation/late callbacks | library | per-request gate on the engine thread; late sink calls are dropped |

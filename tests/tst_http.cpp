@@ -207,30 +207,20 @@ TEST_CASE("redirectFollowedRelative") {
     CHECK(g.r.ok);
     CHECK(*g.r.body == "{\"ok\":1}");
 }
-TEST_CASE("redirect303BecomesGet") {
-    Fx f;
-    f.ft.script("https://a.test/f", redirect(303, "/done"));
-    f.ft.script("https://a.test/done", ok("{}"));
-    Got g;
-    f.h().postForm("https://a.test/f", {{"a", "1"}}, yt::core::newJob(), rec(g));
-    f.pump();
-    REQUIRE(f.ft.started.size() == 2);
-    CHECK(f.ft.started[0].method == yt::HttpRequest::Method::Post);
-    CHECK(f.ft.started[0].body == "a=1");
-    CHECK(f.ft.started[1].method == yt::HttpRequest::Method::Get);
-    CHECK(f.ft.started[1].body.empty());
-    CHECK(g.r.ok);
-}
-TEST_CASE("redirect307KeepsMethodAndBody") {
-    Fx f;
-    f.ft.script("https://a.test/f", redirect(307, "/again"));
-    f.ft.script("https://a.test/again", ok("{}"));
-    Got g;
-    f.h().postForm("https://a.test/f", {{"a", "1"}}, yt::core::newJob(), rec(g));
-    f.pump();
-    REQUIRE(f.ft.started.size() == 2);
-    CHECK(f.ft.started[1].method == yt::HttpRequest::Method::Post);
-    CHECK(f.ft.started[1].body == "a=1");
+// Final review #5: form posts carry client_secret / refresh_token in the BODY, which a
+// 307/308 would replay to the Location's origin — forms never follow redirects.
+TEST_CASE("formPostsNeverFollowRedirects") {
+    for (int status : {301, 302, 303, 307, 308}) {
+        CAPTURE(status);
+        Fx f;
+        f.ft.script("https://a.test/f", redirect(status, "https://elsewhere.test/collect"));
+        Got g;
+        f.h().postForm("https://a.test/f", {{"refresh_token", "SECRET"}}, yt::core::newJob(), rec(g));
+        f.pump();
+        CHECK(f.ft.started.size() == 1);
+        CHECK_FALSE(g.r.ok);
+        CHECK(g.r.httpStatus == status);
+    }
 }
 TEST_CASE("redirectToFileRefused") {
     Fx f; f.ft.script("https://a.test/x", redirect(302, "file:///etc/passwd"));
@@ -397,4 +387,19 @@ TEST_CASE("responses in flight across clearCache are neither coalesced nor cache
     f.pump();
     CHECK(f.ft.started.size() == 2);                  // served from cache...
     CHECK(*c.r.body == "{\"who\":\"B\"}");            // ...and it is B's, never A's
+}
+
+// Final review #6: only youtubei responses may seed the session's visitorData — a
+// third-party GET (RYD, suggest) must not set the persisted YouTube identity.
+TEST_CASE("thirdPartyGetDoesNotSetVisitorData") {
+    Fx f;
+    f.ft.script("https://ryd.test/votes", ok("{\"responseContext\":{\"visitorData\":\"EVIL\"}}"));
+    std::vector<std::string> sunk;
+    f.h().setVisitorSink([&](const std::string &v) { sunk.push_back(v); });
+    Got g;
+    f.h().get("https://ryd.test/votes?videoId=x", yt::core::newJob(), rec(g));
+    f.pump();
+    CHECK(g.r.ok);
+    CHECK(f.h().session().visitorData.empty());
+    CHECK(sunk.empty());
 }

@@ -48,11 +48,13 @@ const HttpHeader *findHeader(const std::vector<HttpHeader> &h, std::string_view 
     for (const HttpHeader &x : h) if (iequals(x.name, name)) return &x;
     return nullptr;
 }
-// A request carrying credentials never follows a redirect: the bearer / consent cookie
-// would be replayed to whatever origin the Location names.
-bool carriesCredentials(const HttpRequest &r)
+// Only credential-free GETs follow redirects. A request carrying credentials would
+// replay them to whatever origin the Location names: the bearer / consent cookie in its
+// headers, or — for OAuth form posts — client_secret / refresh_token in its body.
+bool mayFollowRedirects(const HttpRequest &r)
 {
-    return findHeader(r.headers, "authorization") || findHeader(r.headers, "cookie");
+    return r.method == HttpRequest::Method::Get
+        && !findHeader(r.headers, "authorization") && !findHeader(r.headers, "cookie");
 }
 // Request-line / header hygiene, enforced here for every backend: CR, LF, NUL (any C0
 // control but TAB, and DEL) in a header would let a server-issued value (visitorData,
@@ -358,7 +360,7 @@ void HttpClient::get(std::string url, const core::JobToken &job, core::HttpFn do
     HttpRequest req;
     req.url = std::move(url);                        // byte-exact: never re-encoded
     std::shared_ptr<Exchange> ex = newExchange(std::move(req), job, std::move(done));
-    ex->wantVisitor = m_session.visitorData.empty();
+    ex->wantVisitor = false;                         // only youtubei responses seed the identity
     launch(ex);
 }
 
@@ -434,23 +436,17 @@ void HttpClient::onHopDone(const std::shared_ptr<Exchange> &ex, const std::share
     }
     if (isRedirect(hop->status)) {
         const HttpHeader *loc = findHeader(hop->headers, "location");
-        if (loc && !carriesCredentials(ex->req)) {
+        if (loc && mayFollowRedirects(ex->req)) {
             if (ex->hops >= m_opts.maxRedirects) { r.error = "too many redirects"; complete(ex, std::move(r)); return; }
             std::string next = resolveLocation(ex->req.url, loc->value);
             if (schemeOf(next).empty()) { r.error = "unsupported URL scheme"; complete(ex, std::move(r)); return; }
             ++ex->hops;
-            ex->req.url = std::move(next);
-            const bool post = ex->req.method == HttpRequest::Method::Post;
-            if (hop->status == 303 || (post && (hop->status == 301 || hop->status == 302))) {
-                ex->req.method = HttpRequest::Method::Get;
-                ex->req.body.clear();
-                ex->req.headers.erase(std::remove_if(ex->req.headers.begin(), ex->req.headers.end(),
-                    [](const HttpHeader &h) { return iequals(h.name, "content-type"); }), ex->req.headers.end());
-            }
+            ex->req.url = std::move(next);           // a GET stays a body-less GET on every hop
             launch(ex);
             return;
         }
-        // Credentialed (or Location-less): delivered as is — the envelope check fails it.
+        // Not followable (credentials, a POST) or Location-less: delivered as is — the
+        // envelope check fails it.
     }
     envelope(r, ex->wantVisitor);
     complete(ex, std::move(r));
