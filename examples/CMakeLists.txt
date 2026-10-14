@@ -13,3 +13,13 @@ if(INNERTUBE_BUILD_TESTS)
         add_test(NAME tst_conformance_threaded COMMAND tst_conformance_threaded)
     endif()
 endif()
+
+# yt-cli: the public API with no framework (live network; not a ctest).
+add_executable(yt-cli yt-cli/main.cpp)
+target_link_libraries(yt-cli PRIVATE innertube)
+target_compile_options(yt-cli PRIVATE -std=c++23)
+if(TARGET glaze)
+    target_link_libraries(yt-cli PRIVATE glaze)
+else()
+    target_include_directories(yt-cli SYSTEM PRIVATE ${INNERTUBE_GLAZE_DIR}/include)
+endif()
