@@ -23,6 +23,7 @@ TEST_CASE("curl trace redacts credentials") {
     std::mutex mx;
     std::string trace;
     yt::TransportConfig cfg;
+    cfg.noProxy = true;                   // loopback
     cfg.log = [&](yt::LogLevel, std::string_view, std::string_view m) {
         std::lock_guard<std::mutex> l(mx); trace.append(m).append("\n");
     };

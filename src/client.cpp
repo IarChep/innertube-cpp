@@ -378,6 +378,7 @@ std::unique_ptr<Client> makeClientForTesting(ClientOptions options, std::string 
 {
     auto e = std::make_shared<Engine>();
     e->opts = std::move(options);
+    e->opts.net.noProxy = true;                      // the base is a loopback server
     e->baseUrlOverride = std::move(baseUrl);
     return Engine::makeClient(Engine::boot(std::move(e)));
 }

@@ -90,7 +90,9 @@ auto failures = yt::conformance::runTransportConformance(
 // failures.empty() == supported; each entry is "<check>: <why>"
 ```
 
-It runs against a scripted loopback HTTP server (plain HTTP, no TLS setup) and checks:
+It runs against a scripted loopback HTTP server (plain HTTP, no TLS setup) — with
+`TransportConfig::noProxy` set, which a backend must honour (go direct, ignoring
+`http_proxy` & co.) — and checks:
 GET/POST bodies, request + response headers, **no redirect following**, byte-exact URLs,
 1 MiB streamed in order, `onBody → false` aborts, cancel mid-transfer, connection refused
 → `Connect`, unresolvable host → `Resolve`, truncated body → error, no

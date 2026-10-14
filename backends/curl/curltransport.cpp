@@ -204,7 +204,8 @@ uint64_t CurlTransport::start(HttpRequest request, std::shared_ptr<HttpResponseS
     case IpResolve::V6: curl_easy_setopt(e, CURLOPT_IPRESOLVE, (long) CURL_IPRESOLVE_V6); break;
     }
     if (!m_cfg.caBundlePath.empty()) curl_easy_setopt(e, CURLOPT_CAINFO, m_cfg.caBundlePath.c_str());
-    if (!m_cfg.proxy.empty()) curl_easy_setopt(e, CURLOPT_PROXY, m_cfg.proxy.c_str());
+    if (m_cfg.noProxy) curl_easy_setopt(e, CURLOPT_PROXY, "");   // "" also overrides the env
+    else if (!m_cfg.proxy.empty()) curl_easy_setopt(e, CURLOPT_PROXY, m_cfg.proxy.c_str());
     if (m_cfg.log) {
         curl_easy_setopt(e, CURLOPT_VERBOSE, 1L);
         curl_easy_setopt(e, CURLOPT_DEBUGFUNCTION, &debugCb);

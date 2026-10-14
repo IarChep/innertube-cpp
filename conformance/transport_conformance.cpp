@@ -110,7 +110,9 @@ struct Rec : HttpResponseSink {
 
 struct Harness {
     std::unique_ptr<HttpTransport> t;
-    explicit Harness(const TransportFactory &make) : t(make(TransportConfig{})) {}
+    // Loopback only: a proxy from the environment (http_proxy) must not intercept it.
+    explicit Harness(const TransportFactory &make) : t(make(direct())) {}
+    static TransportConfig direct() { TransportConfig c; c.noProxy = true; return c; }
     void pump(int ms)
     {
         if (!t) return;

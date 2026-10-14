@@ -100,7 +100,8 @@ void run(const yt::TransportConfig &cfg, yt::HttpRequest req, Transfer t)
     if (cfg.ipResolve == yt::IpResolve::V4) curl_easy_setopt(e, CURLOPT_IPRESOLVE, (long) CURL_IPRESOLVE_V4);
     if (cfg.ipResolve == yt::IpResolve::V6) curl_easy_setopt(e, CURLOPT_IPRESOLVE, (long) CURL_IPRESOLVE_V6);
     if (!cfg.caBundlePath.empty()) curl_easy_setopt(e, CURLOPT_CAINFO, cfg.caBundlePath.c_str());
-    if (!cfg.proxy.empty()) curl_easy_setopt(e, CURLOPT_PROXY, cfg.proxy.c_str());
+    if (cfg.noProxy) curl_easy_setopt(e, CURLOPT_PROXY, "");
+    else if (!cfg.proxy.empty()) curl_easy_setopt(e, CURLOPT_PROXY, cfg.proxy.c_str());
     for (const yt::HttpHeader &h : req.headers) hdrs = curl_slist_append(hdrs, (h.name + ": " + h.value).c_str());
     if (req.method == yt::HttpRequest::Method::Post) {
         hdrs = curl_slist_append(hdrs, "Expect:");

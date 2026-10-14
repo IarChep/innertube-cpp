@@ -71,7 +71,8 @@ enum class IpResolve { Any, V4, V6 };
 struct TransportConfig {
     std::string caBundlePath;              // empty = backend/OS default trust store
     IpResolve ipResolve = IpResolve::Any;
-    std::string proxy;                     // empty = direct / system setting
+    std::string proxy;                     // empty = system setting (e.g. http_proxy env)
+    bool noProxy = false;                  // true: always direct, ignoring proxy and system settings
     Logger log;
 };
 
