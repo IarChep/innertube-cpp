@@ -21,12 +21,13 @@ namespace yt::detail {
 // Client) lock, so no callback runs after the destructor returns.
 struct Gate {
     std::recursive_mutex mx;
-    bool closed = false;
+    std::atomic<bool> closed{false};                 // written under mx; read lock-free by Job::active
 };
 
 struct JobHandle {
     core::JobToken token = core::newJob();
     std::weak_ptr<Engine> engine;
+    std::shared_ptr<Gate> gate;                      // closed = the Client is gone: never delivered
     std::atomic<bool> finished{false};
 };
 
@@ -49,11 +50,13 @@ struct Engine : std::enable_shared_from_this<Engine> {
     // --- auth (engine thread; see auth.cpp) ---
     Clock::time_point bearerExpiry{};
     uint64_t authGen = 0;                            // bumped on every identity change (sign-in/out)
+    uint64_t bearerGen = 0;                          // bumped whenever a bearer is installed or dropped
     bool refreshing = false;
     std::vector<std::function<void()>> afterRefresh;
     std::shared_ptr<JobHandle> signInJob;            // the device-code flow in progress
     std::string deviceCode;
     int pollIntervalSecs = 5;
+    Clock::time_point signInDeadline{};             // the device code expires; polling stops
     uint64_t pollTimer = 0;
     std::atomic<bool> signedInFlag{false};           // readable from any thread (Auth::signedIn)
 
@@ -62,6 +65,13 @@ struct Engine : std::enable_shared_from_this<Engine> {
     static std::unique_ptr<Client> makeClient(std::shared_ptr<Engine> e) { return std::unique_ptr<Client>(new Client(std::move(e))); }
     static Engine *of(Client &c) { return c.m_engine.get(); }
     static Job makeJob(std::shared_ptr<JobHandle> h) { return Job(std::move(h)); }
+    std::shared_ptr<JobHandle> newHandle()
+    {
+        auto h = std::make_shared<JobHandle>();
+        h->engine = weak_from_this();
+        h->gate = gate;
+        return h;
+    }
 
     void setup();                                    // engine thread: transport, policy layer, session seed
     void teardown();                                 // engine thread: policy layer, then transport

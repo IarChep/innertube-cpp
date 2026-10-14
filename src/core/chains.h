@@ -24,7 +24,7 @@ struct VideoListSpec {
 };
 enum ActionKind { Subscribe, Unsubscribe, Like, Dislike, RemoveLike };
 
-struct DeviceCodeGrant { std::string deviceCode, userCode, verificationUrl; int intervalSecs = 5; };
+struct DeviceCodeGrant { std::string deviceCode, userCode, verificationUrl; int intervalSecs = 5, expiresInSecs = 0; };
 struct TokenGrant {
     std::string accessToken, refreshToken, error;
     int expiresInSecs = 0;                   // 0 = not reported

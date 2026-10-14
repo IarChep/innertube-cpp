@@ -23,6 +23,7 @@ struct DeviceCode {
     std::optional<std::string> verification_url;
     std::optional<std::string> verification_uri;
     std::optional<gj::FlexInt> interval;
+    std::optional<gj::FlexInt> expires_in;
 };
 struct Token {
     std::optional<std::string> access_token;
@@ -176,6 +177,7 @@ struct PlayerAccum {
     bool haveCaptions = false;
     std::vector<Subtitle> captions;
     Error lastError;                                 // for the all-transport-failed caption path
+    bool unauthorized = false;                       // an attempt (the bearer's TVHTML5) got HTTP 401
 };
 }
 
@@ -194,6 +196,9 @@ static void playerTry(IHttp &http, std::string videoId, std::shared_ptr<std::vec
             auto finish = [&](Result<std::vector<Stream>> streams) {
                 PlayerInfo out;
                 out.streams = std::move(streams);
+                // The walk moves past a rejected bearer to the anonymous clients; when they
+                // fail too, report the 401 so the Client refreshes the bearer and retries.
+                if (acc->unauthorized && out.streams.error) out.streams.error->httpStatus = 401;
                 if (acc->haveCaptions || r.ok) out.captions.value = acc->captions;
                 else out.captions.error = acc->lastError;   // every attempt transport-failed
                 done(out);
@@ -239,17 +244,13 @@ static void playerTry(IHttp &http, std::string videoId, std::shared_ptr<std::vec
                 }
             } else {
                 acc->lastError = errorOf(r);
+                if (r.httpStatus == 401) acc->unauthorized = true;
                 YTLOG(h->log(), "player") << "player" << h->session().clients[(int) client].name << "TRANSPORT FAIL:" << r.error;
             }
             if (isLast) {
                 Result<std::vector<Stream>> s;
                 s.error = r.ok ? Error{ErrorCode::Unavailable, "no playable streams", 0} : errorOf(r);
-                PlayerInfo out;
-                out.streams = std::move(s);
-                if (acc->haveCaptions) out.captions.value = acc->captions;
-                else if (r.ok) out.captions.value = {};
-                else out.captions.error = acc->lastError;
-                done(out);
+                finish(std::move(s));
                 return;
             }
             if (!live(job)) return;                  // canceled between attempts
@@ -377,6 +378,7 @@ void oauthDeviceCode(IHttp &http, const JobToken &job, Callback<DeviceCodeGrant>
         if (out.value.verificationUrl.empty()) out.value.verificationUrl = str(dc.verification_uri);
         out.value.intervalSecs = (int) gj::toInt64(dc.interval);
         if (out.value.intervalSecs <= 0) out.value.intervalSecs = 5;
+        out.value.expiresInSecs = (int) gj::toInt64(dc.expires_in);
         if (out.value.deviceCode.empty() || out.value.userCode.empty())
             out.error = Error{ErrorCode::Api, "device code request failed", r.httpStatus};
         done(out);

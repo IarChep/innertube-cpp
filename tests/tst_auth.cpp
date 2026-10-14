@@ -228,3 +228,83 @@ TEST_CASE("a grant without a refresh token fails and keeps the previous identity
     CHECK(r.c->auth().signedIn());                    // still account A
     for (const yt::SessionState &s : r.states) CHECK(s.refreshToken == "R_A");
 }
+
+// Several calls rejected with the same stale bearer: only the first 401 forces a refresh;
+// one that arrives after the new bearer is installed just retries with it.
+TEST_CASE("a late 401 for an already-replaced bearer does not refresh again") {
+    Rig r("R");
+    r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A1\",\"expires_in\":3600}");
+    r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A2\",\"expires_in\":3600}");
+    r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A3\",\"expires_in\":3600}");
+    r.f->queue("browse", "{\"error\":{}}", 401);
+    r.f->queue("browse", "{\"error\":{}}", 401);
+    for (int i = 0; i < 2; ++i) r.f->queue("browse", "{}");
+    int ok = 0;
+    for (int i = 0; i < 2; ++i)
+        r.c->browse({"FEsubscriptions", "p" + std::to_string(i), ""},
+                    [&](const yt::Result<yt::VideoPage> &x) { ok += x.ok(); });
+    r.c->runOnce(0);
+    REQUIRE(r.f->pending() == 1);                     // the initial refresh
+    r.f->flushOne(0);                                 // A1 installed; both calls go out with it
+    REQUIRE(r.f->pending() == 2);
+    r.f->flushOne(0);                                 // call 0: 401 -> forced refresh in flight
+    REQUIRE(r.f->pending() == 2);                     // [call 1's 401, the refresh]
+    r.f->flushOne(1);                                 // A2 installed, call 0 retried
+    r.f->flushOne(0);                                 // call 1's late 401 (sent with A1)
+    r.pump();
+    CHECK(ok == 2);
+    CHECK(r.f->sentForm.size() == 2);                 // initial + one forced refresh, not two
+    CHECK(r.f->session().bearer == "A2");
+}
+
+// The signed-in /player walk moves past a 401 on TVHTML5 to the anonymous clients; when
+// they fail too, the 401 must still reach the refresh-and-retry logic.
+TEST_CASE("player: a 401 on the bearer's client refreshes and retries") {
+    Rig r("R");
+    r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A1\",\"expires_in\":3600}");
+    r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A2\",\"expires_in\":3600}");
+    for (int run = 0; run < 2; ++run) {
+        r.f->queue("player", "{\"error\":{}}", 401);   // TVHTML5
+        r.f->queue("player", "{}");                      // ANDROID_VR: not playable
+        r.f->queue("player", "{}");                      // IOS: not playable
+    }
+    int calls = 0; yt::PlayerInfo res;
+    r.c->player("vid", [&](const yt::PlayerInfo &p) { ++calls; res = p; });
+    r.pump(30);
+    CHECK(calls == 1);
+    CHECK(r.f->sentForm.size() == 2);                 // initial + the forced refresh
+    CHECK(r.f->sent.size() == 6);                     // the whole walk, retried once
+    REQUIRE_FALSE(res.streams.ok());
+    CHECK(res.streams.error->httpStatus == 401);
+}
+
+// A network blip while polling used to abort the whole sign-in.
+TEST_CASE("device flow: a network error while polling keeps polling") {
+    Rig r;
+    r.f->queue(yt::Catalog::kDeviceCodeUrl,
+               "{\"device_code\":\"D\",\"user_code\":\"U\",\"verification_url\":\"V\",\"interval\":1,\"expires_in\":1800}");
+    r.f->queue(yt::Catalog::kTokenUrl, "", 0);        // network down
+    r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A\",\"refresh_token\":\"R\",\"expires_in\":3600}");
+    bool done = false; yt::Result<yt::Done> res;
+    r.c->auth().signIn([](const yt::DeviceCode &) {}, [&](const yt::Result<yt::Done> &x) { res = x; done = true; });
+    r.pumpFor(5000, [&] { return done; });
+    REQUIRE(done);
+    CHECK(res.ok());
+    CHECK(r.f->sentForm.size() == 3);                 // device code + failed poll + granted poll
+    CHECK(r.c->auth().signedIn());
+}
+TEST_CASE("device flow: network errors past the code's expiry fail the sign-in") {
+    Rig r;
+    r.f->queue(yt::Catalog::kDeviceCodeUrl,
+               "{\"device_code\":\"D\",\"user_code\":\"U\",\"verification_url\":\"V\",\"interval\":1,\"expires_in\":60}");
+    r.f->queue(yt::Catalog::kTokenUrl, "", 0);
+    bool gotCode = false, done = false; yt::Result<yt::Done> res;
+    r.c->auth().signIn([&](const yt::DeviceCode &) { gotCode = true; },
+                       [&](const yt::Result<yt::Done> &x) { res = x; done = true; });
+    r.pumpFor(2000, [&] { return gotCode; });
+    r.t += minutes(2);                                // the device code has expired
+    r.pumpFor(5000, [&] { return done; });
+    REQUIRE(done);
+    CHECK_FALSE(res.ok());
+    CHECK(res.error->message == "network down");
+}

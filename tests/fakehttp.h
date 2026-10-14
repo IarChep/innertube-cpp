@@ -3,7 +3,7 @@
 // completion (a callback that posts the next chain step is drained by the same
 // flush()), skipping waiters whose JobToken died — the gate the real HttpClient
 // applies. Queued replies are raw JSON; a queued status >= 400 fails the reply
-// (code Api, httpStatus kept, body kept).
+// (code Api, httpStatus kept, body kept); status 0 is a network failure (no body).
 #ifndef IT_FAKEHTTP_H
 #define IT_FAKEHTTP_H
 #include "core/ihttp.h"
@@ -73,6 +73,14 @@ public:
             }
         }
     }
+    // Delivers only the i-th pending reply: lets a test reorder replies in flight.
+    void flushOne(size_t i)
+    {
+        Waiter w = std::move(m_pending.at(i));
+        m_pending.erase(m_pending.begin() + (long) i);
+        if (yt::core::live(w.job)) w.fn(w.reply);
+    }
+    size_t pending() const { return m_pending.size(); }
     bool idle() const { return m_pending.empty(); }
     int clearCount = 0;
 
@@ -88,7 +96,8 @@ private:
             it->second.pop_front();
             r.httpStatus = q.status;
             r.body = std::make_shared<const std::string>(std::move(q.body));
-            if (q.status >= 400) { r.code = yt::ErrorCode::Api; r.error = "HTTP " + std::to_string(q.status); }
+            if (q.status == 0) { r.code = yt::ErrorCode::Transport; r.error = "network down"; r.body = std::make_shared<const std::string>(); }
+            else if (q.status >= 400) { r.code = yt::ErrorCode::Api; r.error = "HTTP " + std::to_string(q.status); }
             else r.ok = true;
         } else {
             r.error = "no fixture queued for " + key;

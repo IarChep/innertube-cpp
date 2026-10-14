@@ -258,3 +258,15 @@ TEST_CASE("cancel racing destruction") {
     }
     CHECK(true);
 }
+
+// Job::active() used to stay true for a job the destroyed Client will never deliver.
+TEST_CASE("a job is inactive once its client is gone") {
+    auto f = std::make_shared<FakeHttp>();
+    f->queue("browse", "{}");
+    auto c = mk(f, [] { yt::ClientOptions o; o.ownThread = false; return o; }());
+    yt::Job j = c->browse({"FEx", "", ""}, [](const yt::Result<yt::VideoPage> &) {});
+    c->runOnce(0);
+    CHECK(j.active());
+    c.reset();
+    CHECK_FALSE(j.active());
+}

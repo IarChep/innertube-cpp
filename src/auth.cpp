@@ -11,6 +11,8 @@ constexpr int kDefaultTokenSecs = 3600;
 // Refresh this long before the token expires, so an in-flight call never carries a
 // bearer that dies mid-request.
 constexpr int kRefreshSlackSecs = 60;
+// Device-code lifetime when the grant omits expires_in (Google's is 30 min).
+constexpr int kDefaultDeviceCodeSecs = 1800;
 }
 
 void Engine::ensureBearer(std::function<void()> run)
@@ -34,6 +36,7 @@ void Engine::refreshBearer()
         // identity and must not be installed.
         if (gen == authGen && !g.accessToken.empty() && http) {
             http->setBearer(g.accessToken);
+            ++bearerGen;
             bearerExpiry = now() + std::chrono::seconds(g.expiresInSecs > 0 ? g.expiresInSecs : kDefaultTokenSecs);
         }
         // Run the waiting calls even when the refresh failed: they go out with the old
@@ -59,6 +62,8 @@ void Engine::startSignIn(const std::shared_ptr<JobHandle> &h, std::function<void
         }
         deviceCode = r.value.deviceCode;
         pollIntervalSecs = r.value.intervalSecs > 0 ? r.value.intervalSecs : 5;
+        signInDeadline = now() + std::chrono::seconds(r.value.expiresInSecs > 0 ? r.value.expiresInSecs
+                                                                                 : kDefaultDeviceCodeSecs);
         DeviceCode dc{r.value.verificationUrl, r.value.userCode, pollIntervalSecs};
         deliver(h, [onCode, dc]() { onCode(dc); }, /*final*/ false);
         pollTimer = loop.after(pollIntervalSecs * 1000, [this, h, onDone]() { pollTimer = 0; pollToken(h, onDone); });
@@ -82,6 +87,7 @@ void Engine::pollToken(const std::shared_ptr<JobHandle> &h, Callback<Done> onDon
         }
         if (!g.accessToken.empty()) {
             ++authGen;
+            ++bearerGen;
             http->setBearer(g.accessToken);
             bearerExpiry = now() + std::chrono::seconds(g.expiresInSecs > 0 ? g.expiresInSecs : kDefaultTokenSecs);
             state.refreshToken = g.refreshToken;
@@ -99,7 +105,10 @@ void Engine::pollToken(const std::shared_ptr<JobHandle> &h, Callback<Done> onDon
             deliver(h, [onDone]() { onDone(Result<Done>{}); });
             return;
         }
-        if (g.error == "authorization_pending" || g.error == "slow_down") {
+        // No OAuth verdict (network down, 5xx): keep polling while the code is valid —
+        // the user may be authorizing on the other device right now.
+        const bool transient = g.error.empty() && !g.transportOk && now() < signInDeadline;
+        if (g.error == "authorization_pending" || g.error == "slow_down" || transient) {
             if (g.error == "slow_down") pollIntervalSecs += 5;   // RFC 8628 §3.5
             pollTimer = loop.after(pollIntervalSecs * 1000, [this, h, onDone]() { pollTimer = 0; pollToken(h, onDone); });
             return;
@@ -119,6 +128,7 @@ void Engine::signOut()
     if (signInJob) { signInJob->token->canceled = true; signInJob.reset(); }
     if (pollTimer) { loop.cancelTimer(pollTimer); pollTimer = 0; }
     ++authGen;                                       // an in-flight refresh is now stale
+    ++bearerGen;
     state.refreshToken.clear();
     state.account.reset();
     signedInFlag = false;
@@ -134,8 +144,7 @@ void Engine::signOut()
 
 Job Auth::signIn(std::function<void(const DeviceCode &)> onCode, Callback<Done> onDone)
 {
-    auto h = std::make_shared<detail::JobHandle>();
-    h->engine = m_e->weak_from_this();
+    std::shared_ptr<detail::JobHandle> h = m_e->newHandle();
     detail::Engine *e = m_e;
     e->loop.post([e, h, onCode, onDone]() { e->startSignIn(h, onCode, onDone); });
     return Job(h);
