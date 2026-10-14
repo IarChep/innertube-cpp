@@ -1,9 +1,13 @@
 #include "net/loop.h"
 #include <algorithm>
 namespace yt::net {
-void Loop::setDriver(LoopDriver *d) { m_driver = d; }
+// The driver pointer and every wake() go through m_mx: a post() from another thread
+// must never wake a driver that teardown is replacing or destroying (setDriver(nullptr)
+// happens before the backend is freed, and waits for any in-progress wake()).
+void Loop::setDriver(LoopDriver *d) { std::lock_guard<std::mutex> l(m_mx); m_driver = d; }
 void Loop::post(Fn fn) {
-    { std::lock_guard<std::mutex> l(m_mx); m_posted.push_back(std::move(fn)); }
+    std::lock_guard<std::mutex> l(m_mx);
+    m_posted.push_back(std::move(fn));
     if (LoopDriver *d = m_driver.load()) d->wake(); else m_cv.notify_one();
 }
 uint64_t Loop::after(int ms, Fn fn) {
@@ -32,9 +36,10 @@ void Loop::runOnce(int maxWaitMs) {
                            m_timers.begin()->first - Clock::now()).count();
         wait = (int) std::max<long long>(0, std::min<long long>(wait, d));
     }
-    LoopDriver *drv = m_driver.load();
+    LoopDriver *drv = nullptr;
     {
         std::unique_lock<std::mutex> l(m_mx);
+        drv = m_driver.load();
         if (!m_posted.empty()) wait = 0;
         if (!drv) {
             m_cv.wait_for(l, std::chrono::milliseconds(wait), [&] { return !m_posted.empty() || m_quit.load(); });
@@ -45,8 +50,8 @@ void Loop::runOnce(int maxWaitMs) {
 }
 void Loop::run() { while (!m_quit) runOnce(1000); }
 void Loop::quit() {
+    std::lock_guard<std::mutex> l(m_mx);
     m_quit = true;
-    if (LoopDriver *d = m_driver.load()) d->wake();
-    else { std::lock_guard<std::mutex> l(m_mx); m_cv.notify_one(); }
+    if (LoopDriver *d = m_driver.load()) d->wake(); else m_cv.notify_one();
 }
 }

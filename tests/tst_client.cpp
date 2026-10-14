@@ -215,3 +215,39 @@ TEST_CASE("every endpoint reaches its chain") {
                            "like/like", "comment/create_comment", "browse/edit_playlist"})
         CHECK_MESSAGE(f->lastClientFor(ep) != -1, ep);
 }
+
+// Final review C1: a callback destroying the Client in manual mode ran teardown inline,
+// freeing the policy layer while it was still delivering to a coalesced waiter
+// (watch + comments both POST the same /next).
+TEST_CASE("destroying a manual-mode client from a callback is safe") {
+    yt::conformance::Loopback srv;
+    srv.route("/youtubei/v1/next", yt::conformance::Canned{200,
+        "{\"engagementPanels\":[{\"x\":{\"continuationCommand\":{\"token\":\"TOK\"}}}]}"});
+    yt::ClientOptions o; o.ownThread = false;
+    std::unique_ptr<yt::Client> c = yt::testing::makeClientForTesting(o, srv.url("/youtubei/v1/"));
+    bool gone = false;
+    int comments = 0;
+    c->watch("vid", [&](const yt::Result<yt::WatchResult> &) { c.reset(); gone = true; });
+    c->comments("vid", "", [&](const yt::Result<yt::CommentPage> &) { ++comments; });
+    yt::Client *raw = c.get();
+    for (int i = 0; i < 200 && !gone; ++i) raw->runOnce(10);
+    CHECK(gone);
+    CHECK(comments == 0);                 // nothing after the destructor
+}
+// Final review C2: Job::cancel() on another thread during ~Client posted to the loop
+// and woke a driver (curl multi) that teardown was destroying.
+TEST_CASE("cancel racing destruction") {
+    yt::conformance::Loopback srv;
+    srv.route("/youtubei/v1/browse", yt::conformance::Canned{200, "{}", {}, 200});
+    for (int it = 0; it < 100; ++it) {
+        yt::ClientOptions o;
+        auto c = yt::testing::makeClientForTesting(o, srv.url("/youtubei/v1/"));
+        yt::Job j = c->browse({"FE", "", ""}, [](const yt::Result<yt::VideoPage> &) {});
+        std::atomic<bool> stop{false};
+        std::thread t([&] { while (!stop) j.cancel(); });
+        c.reset();
+        stop = true;
+        t.join();
+    }
+    CHECK(true);
+}

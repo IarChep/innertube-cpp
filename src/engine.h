@@ -43,6 +43,8 @@ struct Engine : std::enable_shared_from_this<Engine> {
     SessionState state;                              // engine-thread copy of what consumers persist
     std::function<Clock::time_point()> now = [] { return Clock::now(); };
     bool torn = false;
+    int runDepth = 0;                                // manual mode: nesting of Client::runOnce
+    bool teardownPending = false;                    // ~Client ran inside runOnce: tear down on exit
 
     // --- auth (engine thread; see auth.cpp) ---
     Clock::time_point bearerExpiry{};

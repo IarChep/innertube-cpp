@@ -41,16 +41,18 @@ std::shared_ptr<Engine> Engine::boot(std::shared_ptr<Engine> e)
         e->setup();
         return e;
     }
-    std::promise<void> ready;
-    std::future<void> ok = ready.get_future();
-    e->thread = std::thread([e, &ready]() {
+    // Shared, not on this stack: the thread may still be inside set_value() when get()
+    // returns and this frame unwinds.
+    auto ready = std::make_shared<std::promise<void>>();
+    std::future<void> ok = ready->get_future();
+    e->thread = std::thread([e, ready]() {
         try {
             e->setup();
         } catch (...) {
-            ready.set_exception(std::current_exception());
+            ready->set_exception(std::current_exception());
             return;
         }
-        ready.set_value();
+        ready->set_value();
         e->loop.run();
     });
     try {
@@ -172,7 +174,13 @@ Client::~Client()
         std::lock_guard<std::recursive_mutex> l(e->gate->mx);
         e->gate->closed = true;                      // no delivery starts after this
     }
-    if (!e->opts.ownThread) { e->teardown(); return; }
+    if (!e->opts.ownThread) {
+        // Inside runOnce (a callback destroyed the Client): the policy layer may still be
+        // on the stack delivering to coalesced waiters — tear down when runOnce unwinds.
+        if (e->runDepth > 0) e->teardownPending = true;
+        else e->teardown();
+        return;
+    }
     e->loop.post([e]() { e->teardown(); e->loop.quit(); });
     if (e->thread.get_id() == std::this_thread::get_id())
         e->thread.detach();                          // destroyed from a callback on the engine thread:
@@ -184,7 +192,13 @@ Client::~Client()
 void Client::runOnce(int maxWaitMs)
 {
     std::shared_ptr<Engine> e = m_engine;            // survives a Client destroyed by a callback
-    if (e && !e->opts.ownThread) e->loop.runOnce(maxWaitMs);
+    if (!e || e->opts.ownThread) return;
+    ++e->runDepth;
+    e->loop.runOnce(maxWaitMs);
+    if (--e->runDepth == 0 && e->teardownPending) {
+        e->teardownPending = false;
+        e->teardown();
+    }
 }
 
 void Client::setLocale(std::string hl, std::string gl)
