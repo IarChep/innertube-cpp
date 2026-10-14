@@ -48,10 +48,11 @@ struct Engine : std::enable_shared_from_this<Engine> {
     Clock::time_point bearerExpiry{};
     bool refreshing = false;
     std::vector<std::function<void()>> afterRefresh;
-    core::JobToken signInJob;                        // the device-code flow in progress
+    std::shared_ptr<JobHandle> signInJob;            // the device-code flow in progress
     std::string deviceCode;
     int pollIntervalSecs = 5;
     uint64_t pollTimer = 0;
+    std::atomic<bool> signedInFlag{false};           // readable from any thread (Auth::signedIn)
 
     // Builds and starts an engine (own thread or inline); throws what setup() throws.
     static std::shared_ptr<Engine> boot(std::shared_ptr<Engine> e);
@@ -64,7 +65,8 @@ struct Engine : std::enable_shared_from_this<Engine> {
 
     // Run `fn` through the consumer's executor, gated on the Client still existing and
     // the job still being live (gate checked ON the delivery thread).
-    void deliver(const std::shared_ptr<JobHandle> &h, std::function<void()> fn);
+    // final=false keeps the Job active (an intermediate callback such as onCode).
+    void deliver(const std::shared_ptr<JobHandle> &h, std::function<void()> fn, bool final = true);
     void notifyState();                              // onStateChanged(state) through the executor
 
     // Post `chain` onto the engine thread; deliver its result to `cb`. Auth-aware: waits
@@ -77,6 +79,10 @@ struct Engine : std::enable_shared_from_this<Engine> {
     void ensureBearer(std::function<void()> run);
     void refreshBearer();
     bool signedIn() const { return !state.refreshToken.empty(); }
+    void startSignIn(const std::shared_ptr<JobHandle> &h, std::function<void(const DeviceCode &)> onCode,
+                     Callback<Done> onDone);
+    void pollToken(const std::shared_ptr<JobHandle> &h, Callback<Done> onDone);
+    void signOut();
 };
 
 }

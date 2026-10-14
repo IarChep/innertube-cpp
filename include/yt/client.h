@@ -12,6 +12,7 @@
 //  5. ~Client() cancels everything; no callback runs after it returns.
 #ifndef YT_CLIENT_H
 #define YT_CLIENT_H
+#include <yt/auth.h>
 #include <yt/catalog.h>
 #include <yt/log.h>
 #include <yt/result.h>
@@ -55,6 +56,7 @@ public:
     bool active() const;                   // started, not canceled, not yet delivered
 private:
     friend struct detail::Engine;
+    friend class Auth;
     explicit Job(std::shared_ptr<detail::JobHandle> h) : m_h(std::move(h)) {}
     std::shared_ptr<detail::JobHandle> m_h;
 };
@@ -85,6 +87,7 @@ public:
     Job votes(std::string videoId, Callback<Votes> done);                    // returnyoutubedislike
     Job suggestions(std::string query, Callback<std::vector<std::string>> done);
 
+    Auth &auth() { return *m_auth; }
     void setLocale(std::string hl, std::string gl);   // empty keeps the current value; clears caches
     void runOnce(int maxWaitMs);                       // only when ownThread == false
 
@@ -92,6 +95,7 @@ private:
     friend struct detail::Engine;
     explicit Client(std::shared_ptr<detail::Engine> engine);
     std::shared_ptr<detail::Engine> m_engine;
+    std::unique_ptr<Auth> m_auth;
 };
 
 }

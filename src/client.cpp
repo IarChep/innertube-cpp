@@ -8,6 +8,33 @@
 namespace yt {
 namespace detail {
 
+namespace {
+long httpStatusOf(const PlayerInfo &p) { return p.streams.error ? p.streams.error->httpStatus : 0; }
+template <class T> long httpStatusOf(const Result<T> &r) { return r.error ? r.error->httpStatus : 0; }
+
+template <class Arg>
+using ChainOf = std::function<void(core::IHttp &, const core::JobToken &, std::function<void(const Arg &)>)>;
+
+// One attempt of a chain. A signed-in 401 forces a bearer refresh and re-runs the
+// chain exactly once (retried=true); every other result is delivered. Plain recursion
+// through captures — no self-referencing closure that would leak when a canceled
+// chain never calls back.
+template <class Arg>
+void runAttempt(Engine *e, std::shared_ptr<JobHandle> h, ChainOf<Arg> chain,
+                std::function<void(const Arg &)> cb, bool retried)
+{
+    if (!core::live(h->token) || !e->http) return;
+    chain(*e->http, h->token, [e, h, chain, cb, retried](const Arg &r) {
+        if (!retried && httpStatusOf(r) == 401 && e->signedIn() && core::live(h->token)) {
+            e->bearerExpiry = Engine::Clock::time_point{};
+            e->ensureBearer([e, h, chain, cb]() { runAttempt<Arg>(e, h, chain, cb, true); });
+            return;
+        }
+        e->deliver(h, [cb, r]() { cb(r); });
+    });
+}
+}
+
 std::shared_ptr<Engine> Engine::boot(std::shared_ptr<Engine> e)
 {
     if (!e->opts.ownThread) {
@@ -56,6 +83,7 @@ void Engine::setup()
     s.gl = state.gl;
     s.visitorData = state.visitorData;
     for (const auto &kv : opts.clients) s.clients[(int) kv.first] = kv.second;
+    signedInFlag = signedIn();
 }
 
 void Engine::teardown()
@@ -68,13 +96,13 @@ void Engine::teardown()
     transport.reset();
 }
 
-void Engine::deliver(const std::shared_ptr<JobHandle> &h, std::function<void()> fn)
+void Engine::deliver(const std::shared_ptr<JobHandle> &h, std::function<void()> fn, bool final)
 {
     std::shared_ptr<Gate> g = gate;
-    auto task = [g, h, fn]() {
+    auto task = [g, h, fn, final]() {
         std::lock_guard<std::recursive_mutex> l(g->mx);
         if (g->closed || !core::live(h->token)) return;
-        h->finished = true;
+        if (final) h->finished = true;
         fn();
     };
     if (opts.deliver) opts.deliver(std::move(task));
@@ -104,10 +132,7 @@ Job Engine::start(std::function<void(core::IHttp &, const core::JobToken &, std:
     h->engine = weak_from_this();
     Engine *e = this;
     loop.post([e, h, chain, cb]() {
-        e->ensureBearer([e, h, chain, cb]() {
-            if (!core::live(h->token) || !e->http) return;
-            chain(*e->http, h->token, [e, h, cb](const Arg &r) { e->deliver(h, [cb, r]() { cb(r); }); });
-        });
+        e->ensureBearer([e, h, chain, cb]() { runAttempt<Arg>(e, h, chain, cb, false); });
     });
     return makeJob(h);
 }
@@ -134,9 +159,10 @@ Client::Client(ClientOptions options)
     auto e = std::make_shared<Engine>();
     e->opts = std::move(options);
     m_engine = Engine::boot(std::move(e));
+    m_auth.reset(new Auth(m_engine.get()));
 }
 
-Client::Client(std::shared_ptr<detail::Engine> engine) : m_engine(std::move(engine)) {}
+Client::Client(std::shared_ptr<detail::Engine> engine) : m_engine(std::move(engine)), m_auth(new Auth(m_engine.get())) {}
 
 Client::~Client()
 {
