@@ -1,5 +1,8 @@
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.20)   # CXX_STANDARD 23
 project(innertube VERSION 0.1.0 LANGUAGES CXX)
+# Standards go through CXX_STANDARD (portable: GCC, Clang, MSVC), strict ISO dialects.
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     set(_it_top ON)
@@ -35,10 +38,9 @@ add_library(innertube STATIC
     src/client.cpp
     src/auth.cpp)
 add_library(innertube::innertube ALIAS innertube)
-set_target_properties(innertube PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# The impl needs C++23 (Glaze v7); consumers only see the C++17 floor (the PUBLIC feature).
+set_target_properties(innertube PROPERTIES POSITION_INDEPENDENT_CODE ON CXX_STANDARD 23)
 target_compile_features(innertube PUBLIC cxx_std_17)
-# The impl needs C++23 (Glaze v7); consumers only see the C++17 floor above.
-target_compile_options(innertube PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-std=c++23>)
 target_include_directories(innertube
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
@@ -82,7 +84,7 @@ message(STATUS "innertube HTTP backend: ${INNERTUBE_HTTP_BACKEND}")
 add_library(innertube_conformance STATIC conformance/transport_conformance.cpp)
 target_link_libraries(innertube_conformance PUBLIC innertube)
 target_include_directories(innertube_conformance PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_compile_options(innertube_conformance PRIVATE -std=c++23)
+set_target_properties(innertube_conformance PROPERTIES CXX_STANDARD 23)
 find_package(Threads REQUIRED)
 target_link_libraries(innertube_conformance PUBLIC Threads::Threads)
 

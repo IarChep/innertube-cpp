@@ -4,15 +4,15 @@ target_include_directories(innertube_doctest PUBLIC ${PROJECT_SOURCE_DIR}/third_
 # it_test(name [STD17] [extra sources...]) — one doctest suite. STD17 compiles the
 # suite at C++17 (public-header checks); otherwise C++23 like the library.
 function(it_test name)
-    set(_std -std=c++23)
+    set(_std 23)
     set(_srcs ${ARGN})
     if(_srcs AND "${ARGV1}" STREQUAL "STD17")
-        set(_std -std=c++17)
+        set(_std 17)
         list(REMOVE_AT _srcs 0)
     endif()
     add_executable(${name} ${name}.cpp ${_srcs})
     target_link_libraries(${name} PRIVATE innertube innertube_doctest)
-    target_compile_options(${name} PRIVATE ${_std})
+    set_target_properties(${name} PROPERTIES CXX_STANDARD ${_std})
     target_include_directories(${name} PRIVATE ${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
     if(TARGET glaze)
         target_link_libraries(${name} PRIVATE glaze)
