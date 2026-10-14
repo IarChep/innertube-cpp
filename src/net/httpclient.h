@@ -54,13 +54,17 @@ public:
     struct Exchange;          // one logical request across its redirect hops
     struct Hop;               // what one transport exchange delivered
 private:
-    struct Waiter { core::JobToken job; core::HttpFn fn; };
+    // Each waiter has its own deadline: a request coalesced onto an older exchange still
+    // gets the full timeout, not what is left of the first one's.
+    struct Waiter { core::JobToken job; core::HttpFn fn; Loop::Clock::time_point deadline; };
     struct CacheEntry { std::shared_ptr<const std::string> body; Loop::Clock::time_point expires; };
 
     std::shared_ptr<Exchange> newExchange(HttpRequest req, core::JobToken job, core::HttpFn fn);
     void launch(const std::shared_ptr<Exchange> &ex);
     void onHopDone(const std::shared_ptr<Exchange> &ex, const std::shared_ptr<Hop> &hop);
     void onTimeout(const std::shared_ptr<Exchange> &ex);
+    void armTimer(const std::shared_ptr<Exchange> &ex);   // at the earliest waiter deadline
+    Loop::Clock::time_point deadline() const;
     void complete(const std::shared_ptr<Exchange> &ex, core::Reply r);
     void forget(const std::shared_ptr<Exchange> &ex);
     void failAsync(const core::JobToken &job, core::HttpFn fn, std::string message);

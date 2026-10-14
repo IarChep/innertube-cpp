@@ -26,6 +26,7 @@ public:
     void runOnce(int maxWaitMs);                       // posted tasks, due timers, then idle wait
     void run();                                        // runOnce(1000) until quit()
     void quit();                                       // any thread
+    size_t timerCount() const { return m_timers.size(); }   // engine thread (tests)
     bool onLoopThread() const { return m_owner.load() == std::this_thread::get_id(); }
 private:
     std::atomic<LoopDriver *> m_driver{nullptr};

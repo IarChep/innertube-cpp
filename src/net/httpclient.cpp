@@ -185,20 +185,24 @@ class HopSink final : public HttpResponseSink {
 public:
     HopSink(Loop &loop, std::weak_ptr<HttpClient::Exchange> ex, int64_t cap)
         : m_loop(loop), m_ex(std::move(ex)), m_cap(cap), m_hop(std::make_shared<HttpClient::Hop>()) {}
+    // Calls after onDone break the backend contract; they are dropped instead of racing
+    // the engine thread, which owns the hop from the moment onDone posts it.
     void onHead(int status, std::vector<HttpHeader> headers) override
     {
+        if (m_finished.load()) return;
         m_hop->status = status;
         m_hop->headers = std::move(headers);
     }
     bool onBody(const char *data, size_t size) override
     {
-        if (m_abort.load()) return false;
+        if (m_abort.load() || m_finished.load()) return false;
         if ((int64_t)(m_hop->body.size() + size) > m_cap) { m_hop->tooLarge = true; return false; }
         m_hop->body.append(data, size);
         return true;
     }
     void onDone(TransportStatus status) override
     {
+        if (m_finished.exchange(true)) return;
         m_hop->st = std::move(status);
         std::weak_ptr<HttpClient::Exchange> ex = m_ex;
         std::shared_ptr<HttpClient::Hop> hop = m_hop;
@@ -214,6 +218,7 @@ private:
     int64_t m_cap;
     std::shared_ptr<HttpClient::Hop> m_hop;
     std::atomic<bool> m_abort{false};
+    std::atomic<bool> m_finished{false};
 };
 
 HttpClient::HttpClient(Loop &loop, HttpTransport &transport, HttpOptions opts)
@@ -273,7 +278,7 @@ std::shared_ptr<HttpClient::Exchange> HttpClient::newExchange(HttpRequest req, c
     ex->owner = this;
     ex->gen = m_gen;
     ex->req = std::move(req);
-    ex->waiters.push_back({std::move(job), std::move(fn)});
+    ex->waiters.push_back({std::move(job), std::move(fn), deadline()});
     m_exchanges.push_back(ex);
     return ex;
 }
@@ -318,7 +323,7 @@ void HttpClient::post(std::string_view endpoint, ClientId client, std::string bo
     auto inflight = m_inflightByKey.find(key);
     if (inflight != m_inflightByKey.end()) {
         if (std::shared_ptr<Exchange> ex = inflight->second.lock()) {
-            if (!ex->done) { ex->waiters.push_back({job, std::move(done)}); return; }
+            if (!ex->done) { ex->waiters.push_back({job, std::move(done), deadline()}); return; }
         }
     }
     // (b) CACHE HIT: deliver asynchronously — never re-entrant from post().
@@ -380,8 +385,10 @@ void HttpClient::postForm(std::string url, core::Form fields, const core::JobTok
 void HttpClient::launch(const std::shared_ptr<Exchange> &ex)
 {
     if (!cleanRequest(ex->req)) {
-        // Asynchronous like every other failure: never re-entrant from post()/get().
+        // Asynchronous like every other failure: never re-entrant from post()/get(). A
+        // redirect hop lands here with the exchange's timer armed.
         ex->done = true;
+        if (ex->timer) { m_loop.cancelTimer(ex->timer); ex->timer = 0; }
         forget(ex);
         const std::vector<Waiter> waiters = std::move(ex->waiters);
         std::weak_ptr<char> life = m_life;
@@ -395,24 +402,48 @@ void HttpClient::launch(const std::shared_ptr<Exchange> &ex)
         return;
     }
     ex->sink = std::make_shared<HopSink>(m_loop, ex, m_opts.maxBodyBytes);
-    if (!ex->timer && m_opts.timeoutMs > 0) {
-        std::weak_ptr<Exchange> w = ex;
-        ex->timer = m_loop.after(m_opts.timeoutMs, [w]() {
-            if (std::shared_ptr<Exchange> e = w.lock()) e->owner->onTimeout(e);
-        });
-    }
+    if (!ex->timer) armTimer(ex);                    // redirect hops keep the running timer
     ex->transportId = m_transport.start(ex->req, ex->sink);
+}
+
+Loop::Clock::time_point HttpClient::deadline() const
+{
+    return m_opts.timeoutMs > 0 ? Loop::Clock::now() + std::chrono::milliseconds(m_opts.timeoutMs)
+                                : Loop::Clock::time_point::max();
+}
+
+void HttpClient::armTimer(const std::shared_ptr<Exchange> &ex)
+{
+    if (m_opts.timeoutMs <= 0 || ex->waiters.empty()) return;
+    Loop::Clock::time_point first = ex->waiters.front().deadline;
+    for (const Waiter &w : ex->waiters) first = std::min(first, w.deadline);
+    const auto ms = std::chrono::ceil<std::chrono::milliseconds>(first - Loop::Clock::now()).count();
+    std::weak_ptr<Exchange> wk = ex;
+    ex->timer = m_loop.after((int) std::max<long long>(0, ms), [wk]() {
+        if (std::shared_ptr<Exchange> e = wk.lock()) e->owner->onTimeout(e);
+    });
 }
 
 void HttpClient::onTimeout(const std::shared_ptr<Exchange> &ex)
 {
     if (ex->done) return;
     ex->timer = 0;
-    ex->sink->abort();
-    m_transport.cancel(ex->transportId);
     Reply r;
     r.code = ErrorCode::Timeout;
     r.error = "request timed out";
+    // Waiters that joined later keep the exchange going until their own deadline.
+    const Loop::Clock::time_point now = Loop::Clock::now();
+    std::vector<Waiter> expired, rest;
+    for (Waiter &w : ex->waiters) (w.deadline <= now ? expired : rest).push_back(std::move(w));
+    if (!rest.empty()) {
+        ex->waiters = std::move(rest);
+        armTimer(ex);
+        for (const Waiter &w : expired) if (core::live(w.job)) w.fn(r);
+        return;
+    }
+    ex->waiters = std::move(expired);
+    ex->sink->abort();
+    m_transport.cancel(ex->transportId);
     complete(ex, std::move(r));                      // the backend's late onDone is ignored
 }
 
@@ -449,6 +480,13 @@ void HttpClient::onHopDone(const std::shared_ptr<Exchange> &ex, const std::share
         // envelope check fails it.
     }
     envelope(r, ex->wantVisitor);
+    // A non-2xx answer is a failure even when its JSON carries no "error" member — it is
+    // never cached nor parsed as a (spuriously empty) result. The body stays populated.
+    if (r.ok && (hop->status < 200 || hop->status >= 300)) {
+        r.ok = false;
+        r.code = ErrorCode::Api;
+        r.error = "HTTP " + std::to_string(hop->status);
+    }
     complete(ex, std::move(r));
 }
 

@@ -367,6 +367,7 @@ TEST_CASE("urlWithControlCharsRefused") {
     CHECK_FALSE(a.r.ok);
     CHECK_FALSE(b.r.ok);
     CHECK(b.r.code == ErrorCode::Transport);
+    CHECK(f.loop.timerCount() == 0);                // the refused hop disarmed the timeout
 }
 
 // Security review: a response still in flight when the identity changes (clearCache on
@@ -402,4 +403,67 @@ TEST_CASE("thirdPartyGetDoesNotSetVisitorData") {
     CHECK(g.r.ok);
     CHECK(f.h().session().visitorData.empty());
     CHECK(sunk.empty());
+}
+
+// A non-2xx JSON answer without an "error" member used to pass as ok (and be cached).
+TEST_CASE("non2xxWithoutErrorMemberFailsAndIsNotCached") {
+    Fx f;
+    f.ft.script(kBrowse, ok("{\"contents\":{}}", 503));
+    f.ft.script(kBrowse, ok("{\"contents\":{}}"));
+    Got a, b;
+    f.h().post("browse", ClientId::WEB, "{}", yt::core::newJob(), rec(a));
+    f.pump();
+    CHECK_FALSE(a.r.ok);
+    CHECK(a.r.code == ErrorCode::Api);
+    CHECK(a.r.httpStatus == 503);
+    CHECK(a.r.error == "HTTP 503");
+    f.h().post("browse", ClientId::WEB, "{}", yt::core::newJob(), rec(b));
+    f.pump();
+    CHECK(f.ft.started.size() == 2);                // not served from the cache
+    CHECK(b.r.ok);
+}
+
+// A backend breaking the contract (sink calls after onDone) must not touch the hop the
+// engine thread already owns.
+TEST_CASE("sinkCallsAfterOnDoneAreDropped") {
+    struct Rogue : yt::HttpTransport {
+        std::shared_ptr<yt::HttpResponseSink> sink;
+        uint64_t start(yt::HttpRequest, std::shared_ptr<yt::HttpResponseSink> s) override { sink = s; return 1; }
+        void cancel(uint64_t) override {}
+    } t;
+    yt::net::Loop loop;
+    HttpClient h(loop, t, yt::net::HttpOptions{});
+    Got g;
+    h.get("https://a.test/", yt::core::newJob(), rec(g));
+    t.sink->onHead(200, {});
+    t.sink->onBody("{}", 2);
+    t.sink->onDone({});
+    t.sink->onHead(500, {});
+    CHECK_FALSE(t.sink->onBody("garbage", 7));
+    t.sink->onDone({yt::TransportError::Reset, "late"});
+    for (int i = 0; i < 3; ++i) loop.runOnce(0);
+    CHECK(g.calls == 1);
+    CHECK(g.r.ok);
+    CHECK(g.r.httpStatus == 200);
+    CHECK(*g.r.body == "{}");
+}
+
+// A request coalesced onto an older exchange gets its own full timeout.
+TEST_CASE("coalescedWaiterKeepsItsOwnTimeout") {
+    Fx f; f.o.timeoutMs = 300;
+    FakeExchange x; x.hang = true; f.ft.script(kBrowse, x);
+    Got a, b;
+    f.h().post("browse", ClientId::WEB, "{}", yt::core::newJob(), rec(a));
+    f.runFor(200, [] { return false; });
+    f.h().post("browse", ClientId::WEB, "{}", yt::core::newJob(), rec(b));   // joins, ~100 ms left
+    f.runFor(1000, [&] { return a.calls > 0; });
+    CHECK(a.calls == 1);
+    CHECK(a.r.code == ErrorCode::Timeout);
+    CHECK(b.calls == 0);                            // still has ~200 ms of its own
+    CHECK(f.ft.canceled.empty());                   // the exchange lives on for b
+    f.runFor(1000, [&] { return b.calls > 0; });
+    CHECK(b.calls == 1);
+    CHECK(b.r.code == ErrorCode::Timeout);
+    CHECK(f.ft.canceled.size() == 1);
+    CHECK(f.ft.started.size() == 1);
 }
