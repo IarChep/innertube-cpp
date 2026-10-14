@@ -14,6 +14,9 @@
 #include <thread>
 
 namespace {
+// The loopback scenarios need a real backend; INNERTUBE_HTTP_BACKEND=none has none.
+bool haveBackend() { return yt::makeDefaultTransport(yt::TransportConfig{}) != nullptr; }
+#define REQUIRE_BACKEND() do { if (!haveBackend()) { MESSAGE("skipped: built without an HTTP backend"); return; } } while (0)
 std::unique_ptr<yt::Client> mk(std::shared_ptr<FakeHttp> f, yt::ClientOptions o = {}) {
     return yt::testing::makeClientForTesting(std::move(o), f);
 }
@@ -142,6 +145,7 @@ TEST_CASE("no transport -> constructor throws") {
     CHECK_THROWS_AS(yt::Client{o}, std::invalid_argument);
 }
 TEST_CASE("cancelFromOtherThreadAtMostOnce") {
+    REQUIRE_BACKEND();
     yt::conformance::Loopback srv;
     srv.route("/youtubei/v1/browse", yt::conformance::Canned{200, "{}"});
     yt::ClientOptions o;   // own engine thread, inline delivery on it
@@ -162,6 +166,7 @@ TEST_CASE("cancelFromOtherThreadAtMostOnce") {
     for (auto &kv : calls) CHECK(kv.second <= 1);
 }
 TEST_CASE("destroyWithInflight") {
+    REQUIRE_BACKEND();
     yt::conformance::Loopback srv;
     srv.route("/youtubei/v1/browse", yt::conformance::Canned{200, "{}", {}, 300});
     std::atomic<int> calls{0};
@@ -220,6 +225,7 @@ TEST_CASE("every endpoint reaches its chain") {
 // freeing the policy layer while it was still delivering to a coalesced waiter
 // (watch + comments both POST the same /next).
 TEST_CASE("destroying a manual-mode client from a callback is safe") {
+    REQUIRE_BACKEND();
     yt::conformance::Loopback srv;
     srv.route("/youtubei/v1/next", yt::conformance::Canned{200,
         "{\"engagementPanels\":[{\"x\":{\"continuationCommand\":{\"token\":\"TOK\"}}}]}"});
@@ -237,6 +243,7 @@ TEST_CASE("destroying a manual-mode client from a callback is safe") {
 // Final review C2: Job::cancel() on another thread during ~Client posted to the loop
 // and woke a driver (curl multi) that teardown was destroying.
 TEST_CASE("cancel racing destruction") {
+    REQUIRE_BACKEND();
     yt::conformance::Loopback srv;
     srv.route("/youtubei/v1/browse", yt::conformance::Canned{200, "{}", {}, 200});
     for (int it = 0; it < 100; ++it) {
