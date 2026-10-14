@@ -23,3 +23,10 @@ if(TARGET glaze)
 else()
     target_include_directories(yt-cli SYSTEM PRIVATE ${INNERTUBE_GLAZE_DIR}/include)
 endif()
+
+# Single-file public-API examples (live network; not ctests). All drive the Client
+# from main() with ownThread=false + runOnce().
+foreach(_ex watch channel suggest)
+    add_executable(yt-${_ex} ${_ex}/main.cpp)
+    target_link_libraries(yt-${_ex} PRIVATE innertube)
+endforeach()
