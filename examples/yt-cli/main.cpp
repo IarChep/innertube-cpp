@@ -10,6 +10,9 @@
 // need a session (FEsubscriptions, FEhistory) work after `signin`.
 #include <yt/client.h>
 #include <glaze/glaze.hpp>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <condition_variable>
 #include <cstdio>
 #include <deque>
@@ -64,10 +67,19 @@ yt::SessionState load()
     return s;
 }
 
+// The file holds the OAuth refresh token: owner-only, written to a temp file and
+// renamed so a crash never leaves a half-written state behind.
 void save(const yt::SessionState &s)
 {
     SavedState out{s.hl, s.gl, s.visitorData, s.refreshToken};
-    std::ofstream(kStateFile) << glz::write_json(out).value_or("{}");
+    const std::string json = glz::write_json(out).value_or("{}");
+    const std::string tmp = std::string(kStateFile) + ".tmp";
+    const int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) return;
+    ::fchmod(fd, 0600);                              // also when the file already existed
+    const bool ok = ::write(fd, json.data(), json.size()) == (ssize_t) json.size();
+    ::close(fd);
+    if (ok) std::rename(tmp.c_str(), kStateFile); else std::remove(tmp.c_str());
 }
 
 int fail(const yt::Error &e)
