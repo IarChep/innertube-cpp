@@ -12,7 +12,7 @@ std::string parseText(std::string_view field)
 }
 
 struct VideoCollector : CollectorBase {
-    std::vector<Video> *out;
+    std::vector<VideoItem> *out;
     scan::Action what(std::string_view key, int)
     {
         if (consumed()) return scan::Action::Skip;
@@ -47,9 +47,9 @@ struct VideoCollector : CollectorBase {
     }
 };
 
-std::vector<Video> parseVideoList(std::string_view response, std::string *nextToken)
+std::vector<VideoItem> parseVideoList(std::string_view response, std::string *nextToken)
 {
-    std::vector<Video> out;
+    std::vector<VideoItem> out;
     if (nextToken) {
         WithToken<VideoCollector> w;
         w.inner.out = &out;
@@ -66,21 +66,21 @@ std::vector<Video> parseVideoList(std::string_view response, std::string *nextTo
 // ---------------------------------------------------------------------------
 // Direct single-renderer entry points (tests + callers holding the inner object).
 // ---------------------------------------------------------------------------
-Video parseVideoRenderer(std::string_view r)
+VideoItem parseVideoRenderer(std::string_view r)
 {
     rj::VideoR s{};
     readJson(s, r);
     return fromVideoRenderer(s);
 }
 
-Video parseLockupViewModel(std::string_view lm)
+VideoItem parseLockupViewModel(std::string_view lm)
 {
     rj::Lockup s{};
     readJson(s, lm);
     return fromLockupVideo(s);
 }
 
-Video parseTileRenderer(std::string_view t)
+VideoItem parseTileRenderer(std::string_view t)
 {
     rj::Tile s{};
     readJson(s, t);

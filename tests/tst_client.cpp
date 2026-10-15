@@ -39,8 +39,8 @@ struct QueueExec {
 TEST_CASE("browse delivers a parsed page, never inline") {
     auto f = std::make_shared<FakeHttp>(); f->queue("browse", loadFixtureRaw("browse_feed.json"));
     auto c = mk(f);
-    yt::Result<yt::Page<yt::Video>> got; bool called = false;
-    yt::Job j = c->feeds().home([&](const yt::Result<yt::Page<yt::Video>> &r) { got = r; called = true; });
+    yt::Result<yt::Page<yt::VideoItem>> got; bool called = false;
+    yt::Job j = c->feeds().home([&](const yt::Result<yt::Page<yt::VideoItem>> &r) { got = r; called = true; });
     CHECK_FALSE(called);
     CHECK(j.active());
     c->runOnce(0);
@@ -68,7 +68,7 @@ TEST_CASE("cancelOnDeliveryThreadSuppresses") {
     yt::ClientOptions o; o.deliver = ex.exec();
     auto c = mk(f, o);
     int calls = 0;
-    yt::Job j = c->feeds().topic("FEx", [&](const yt::Result<yt::Page<yt::Video>> &) { ++calls; });
+    yt::Job j = c->feeds().topic("FEx", [&](const yt::Result<yt::Page<yt::VideoItem>> &) { ++calls; });
     c->runOnce(0); f->flush();
     REQUIRE(ex.size() == 1);            // the delivery is queued in the consumer's executor
     j.cancel();                         // ...and canceled on the delivery thread before it runs
@@ -82,7 +82,7 @@ TEST_CASE("deliveries go through the executor") {
     yt::ClientOptions o; o.deliver = ex.exec();
     auto c = mk(f, o);
     int calls = 0;
-    c->feeds().topic("FEx", [&](const yt::Result<yt::Page<yt::Video>> &) { ++calls; });
+    c->feeds().topic("FEx", [&](const yt::Result<yt::Page<yt::VideoItem>> &) { ++calls; });
     c->runOnce(0); f->flush();
     CHECK(calls == 0);
     ex.run();
@@ -114,7 +114,7 @@ TEST_CASE("a runtime transport factory overrides the build-time backend") {
     };
     yt::Client c(o);
     REQUIRE(made != nullptr);
-    c.feeds().topic("FEx", [](const yt::Result<yt::Page<yt::Video>> &) {});
+    c.feeds().topic("FEx", [](const yt::Result<yt::Page<yt::VideoItem>> &) {});
     c.runOnce(0);
     REQUIRE(made->started.size() == 1);
     CHECK(made->started[0].url == "https://www.youtube.com/youtubei/v1/browse?prettyPrint=false");
@@ -133,7 +133,7 @@ TEST_CASE("visitorData capture surfaces via onStateChanged") {
     FakeExchange x; x.chunks = {"{\"responseContext\":{\"visitorData\":\"VX\"}}"};
     ft->script("https://www.youtube.com/youtubei/v1/browse", x);
     bool called = false;
-    c.feeds().topic("FEx", [&](const yt::Result<yt::Page<yt::Video>> &r) { called = true; CHECK(r.ok()); });
+    c.feeds().topic("FEx", [&](const yt::Result<yt::Page<yt::VideoItem>> &r) { called = true; CHECK(r.ok()); });
     for (int i = 0; i < 5; ++i) { c.runOnce(0); ft->complete(); }
     CHECK(called);
     REQUIRE_FALSE(states.empty());
@@ -158,7 +158,7 @@ TEST_CASE("cancelFromOtherThreadAtMostOnce") {
     std::vector<yt::Job> jobs;
     for (int i = 0; i < 200; ++i) {
         jobs.push_back(c->feeds().topic("FE" + std::to_string(i),
-            [&, i](const yt::Result<yt::Page<yt::Video>> &) { std::lock_guard<std::mutex> l(mx); ++calls[i]; }));
+            [&, i](const yt::Result<yt::Page<yt::VideoItem>> &) { std::lock_guard<std::mutex> l(mx); ++calls[i]; }));
         const int delayUs = (int)(rng() % 3000);
         yt::Job j = jobs.back();
         std::thread([j, delayUs]() mutable { std::this_thread::sleep_for(std::chrono::microseconds(delayUs)); j.cancel(); }).join();
@@ -176,7 +176,7 @@ TEST_CASE("destroyWithInflight") {
         yt::ClientOptions o;
         auto c = yt::testing::makeClientForTesting(o, srv.url("/youtubei/v1/"));
         for (int i = 0; i < 5; ++i)
-            c->feeds().topic("FE" + std::to_string(i), [&](const yt::Result<yt::Page<yt::Video>> &) { ++calls; });
+            c->feeds().topic("FE" + std::to_string(i), [&](const yt::Result<yt::Page<yt::VideoItem>> &) { ++calls; });
         std::this_thread::sleep_for(std::chrono::milliseconds(30));
     }   // ~Client while all five are in flight
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -189,7 +189,7 @@ TEST_CASE("queued deliveries are dropped once the client is gone") {
     int calls = 0;
     {
         auto c = mk(f, o);
-        c->feeds().topic("FEx", [&](const yt::Result<yt::Page<yt::Video>> &) { ++calls; });
+        c->feeds().topic("FEx", [&](const yt::Result<yt::Page<yt::VideoItem>> &) { ++calls; });
         c->runOnce(0); f->flush();
         REQUIRE(ex.size() == 1);
     }
@@ -267,12 +267,12 @@ TEST_CASE("Client::more continues a page") {
     f->queue("browse", loadFixtureRaw("browse_feed.json"));
     f->queue("browse", loadFixtureRaw("browse_feed.json"));
     auto c = mk(f);
-    yt::Result<yt::Page<yt::Video>> first, second;
-    c->feeds().home([&](const yt::Result<yt::Page<yt::Video>> &r) { first = r; });
+    yt::Result<yt::Page<yt::VideoItem>> first, second;
+    c->feeds().home([&](const yt::Result<yt::Page<yt::VideoItem>> &r) { first = r; });
     for (int i = 0; i < 4; ++i) { c->runOnce(0); f->flush(); }
     REQUIRE(first.ok());
     REQUIRE(first.value.next);
-    c->more(first.value.next, [&](const yt::Result<yt::Page<yt::Video>> &r) { second = r; });
+    c->more(first.value.next, [&](const yt::Result<yt::Page<yt::VideoItem>> &r) { second = r; });
     for (int i = 0; i < 4; ++i) { c->runOnce(0); f->flush(); }
     REQUIRE(second.ok());
     CHECK(f->sent.back() == "{\"continuation\":\"FEEDNEXT\"}");
@@ -290,8 +290,8 @@ TEST_CASE("destroying a manual-mode client from a callback is safe") {
     std::unique_ptr<yt::Client> c = yt::testing::makeClientForTesting(o, srv.url("/youtubei/v1/"));
     bool gone = false;
     int comments = 0;
-    c->videos().get("vid11111111", [&](const yt::Result<yt::WatchResult> &) { c.reset(); gone = true; });
-    c->comments().list("vid11111111", [&](const yt::Result<yt::Page<yt::Comment>> &) { ++comments; });
+    c->videos().get("vid11111111", [&](const yt::Result<yt::Video> &) { c.reset(); gone = true; });
+    c->comments().list("vid11111111", [&](const yt::Result<yt::Page<yt::CommentThread>> &) { ++comments; });
     yt::Client *raw = c.get();
     for (int i = 0; i < 200 && !gone; ++i) raw->runOnce(10);
     CHECK(gone);
@@ -306,7 +306,7 @@ TEST_CASE("cancel racing destruction") {
     for (int it = 0; it < 100; ++it) {
         yt::ClientOptions o;
         auto c = yt::testing::makeClientForTesting(o, srv.url("/youtubei/v1/"));
-        yt::Job j = c->feeds().topic("FE", [](const yt::Result<yt::Page<yt::Video>> &) {});
+        yt::Job j = c->feeds().topic("FE", [](const yt::Result<yt::Page<yt::VideoItem>> &) {});
         std::atomic<bool> stop{false};
         std::thread t([&] { while (!stop) j.cancel(); });
         c.reset();
@@ -321,7 +321,7 @@ TEST_CASE("a job is inactive once its client is gone") {
     auto f = std::make_shared<FakeHttp>();
     f->queue("browse", "{}");
     auto c = mk(f, [] { yt::ClientOptions o; o.ownThread = false; return o; }());
-    yt::Job j = c->feeds().topic("FEx", [](const yt::Result<yt::Page<yt::Video>> &) {});
+    yt::Job j = c->feeds().topic("FEx", [](const yt::Result<yt::Page<yt::VideoItem>> &) {});
     c->runOnce(0);
     CHECK(j.active());
     c.reset();
@@ -334,11 +334,11 @@ template <class F> bool ready(F &f) { return f.wait_for(std::chrono::seconds(0))
 TEST_CASE("the future form delivers the result") {
     auto f = std::make_shared<FakeHttp>(); f->queue("browse", loadFixtureRaw("browse_feed.json"));
     auto c = mk(f);
-    std::future<yt::Result<yt::Page<yt::Video>>> home = c->feeds().home();
+    std::future<yt::Result<yt::Page<yt::VideoItem>>> home = c->feeds().home();
     CHECK_FALSE(ready(home));                         // only posted, like the callback form
     for (int i = 0; i < 8 && !ready(home); ++i) { c->runOnce(0); f->flush(); }
     REQUIRE(ready(home));
-    const yt::Result<yt::Page<yt::Video>> r = home.get();
+    const yt::Result<yt::Page<yt::VideoItem>> r = home.get();
     REQUIRE(r.ok());
     CHECK(r.value.items.size() == 2);
 }

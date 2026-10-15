@@ -23,9 +23,9 @@ template <class T> void fail(const Callback<T> &done, Error error)
     done(r);
 }
 
-Job feed(Engine *e, std::string browseId, Callback<Page<Video>> done)
+Job feed(Engine *e, std::string browseId, Callback<Page<VideoItem>> done)
 {
-    return run<Page<Video>>(e, [browseId](core::IHttp &h, const core::JobToken &t, Callback<Page<Video>> d) {
+    return run<Page<VideoItem>>(e, [browseId](core::IHttp &h, const core::JobToken &t, Callback<Page<VideoItem>> d) {
         core::VideoListSpec s;
         s.browseId = browseId;
         core::fetchVideoList(h, s, t, std::move(d));
@@ -55,9 +55,9 @@ Job edit(Engine *e, std::string videoLink, std::string playlistLink, core::Playl
 
 // ---- Videos ----
 
-Job Videos::get(std::string link, Callback<WatchResult> done)
+Job Videos::get(std::string link, Callback<Video> done)
 {
-    return run<WatchResult>(m_e, [link](core::IHttp &h, const core::JobToken &t, Callback<WatchResult> d) {
+    return run<Video>(m_e, [link](core::IHttp &h, const core::JobToken &t, Callback<Video> d) {
         const std::optional<std::string> id = core::videoIdOf(link);
         if (!id) return fail(d, core::badLink(link, "video"));
         core::fetchWatch(h, *id, t, std::move(d));
@@ -96,14 +96,14 @@ Job Videos::votes(std::string link, Callback<Votes> done)
 
 // ---- Search ----
 
-Job Search::videos(std::string query, Callback<Page<Video>> done)
+Job Search::videos(std::string query, Callback<Page<VideoItem>> done)
 {
     return videos(std::move(query), SearchOptions{}, std::move(done));
 }
 
-Job Search::videos(std::string query, SearchOptions options, Callback<Page<Video>> done)
+Job Search::videos(std::string query, SearchOptions options, Callback<Page<VideoItem>> done)
 {
-    return run<Page<Video>>(m_e, [query, options](core::IHttp &h, const core::JobToken &t, Callback<Page<Video>> d) {
+    return run<Page<VideoItem>>(m_e, [query, options](core::IHttp &h, const core::JobToken &t, Callback<Page<VideoItem>> d) {
         core::VideoListSpec s;
         s.kind = core::VideoListSpec::Search;
         s.query = query;
@@ -143,9 +143,9 @@ Job Channels::get(std::string link, Callback<Channel> done)
     }, std::move(done));
 }
 
-Job Channels::videos(std::string link, Callback<Page<Video>> done)
+Job Channels::videos(std::string link, Callback<Page<VideoItem>> done)
 {
-    return run<Page<Video>>(m_e, [link](core::IHttp &h, const core::JobToken &t, Callback<Page<Video>> d) {
+    return run<Page<VideoItem>>(m_e, [link](core::IHttp &h, const core::JobToken &t, Callback<Page<VideoItem>> d) {
         core::fetchChannelVideos(h, link, t, std::move(d));
     }, std::move(done));
 }
@@ -159,9 +159,9 @@ Job Channels::playlists(std::string link, Callback<Page<Playlist>> done)
 
 // ---- Playlists ----
 
-Job Playlists::videos(std::string link, Callback<Page<Video>> done)
+Job Playlists::videos(std::string link, Callback<Page<VideoItem>> done)
 {
-    return run<Page<Video>>(m_e, [link](core::IHttp &h, const core::JobToken &t, Callback<Page<Video>> d) {
+    return run<Page<VideoItem>>(m_e, [link](core::IHttp &h, const core::JobToken &t, Callback<Page<VideoItem>> d) {
         const std::optional<std::string> id = core::playlistIdOf(link);
         if (!id) return fail(d, core::badLink(link, "playlist"));
         core::VideoListSpec s;
@@ -172,16 +172,16 @@ Job Playlists::videos(std::string link, Callback<Page<Video>> done)
 
 // ---- Feeds ----
 
-Job Feeds::home(Callback<Page<Video>> done) { return feed(m_e, "FEwhat_to_watch", std::move(done)); }
-Job Feeds::subscriptions(Callback<Page<Video>> done) { return feed(m_e, "FEsubscriptions", std::move(done)); }
-Job Feeds::history(Callback<Page<Video>> done) { return feed(m_e, "FEhistory", std::move(done)); }
-Job Feeds::topic(std::string id, Callback<Page<Video>> done) { return feed(m_e, std::move(id), std::move(done)); }
+Job Feeds::home(Callback<Page<VideoItem>> done) { return feed(m_e, "FEwhat_to_watch", std::move(done)); }
+Job Feeds::subscriptions(Callback<Page<VideoItem>> done) { return feed(m_e, "FEsubscriptions", std::move(done)); }
+Job Feeds::history(Callback<Page<VideoItem>> done) { return feed(m_e, "FEhistory", std::move(done)); }
+Job Feeds::topic(std::string id, Callback<Page<VideoItem>> done) { return feed(m_e, std::move(id), std::move(done)); }
 
 // ---- Comments ----
 
-Job Comments::list(std::string link, Callback<Page<Comment>> done)
+Job Comments::list(std::string link, Callback<Page<CommentThread>> done)
 {
-    return run<Page<Comment>>(m_e, [link](core::IHttp &h, const core::JobToken &t, Callback<Page<Comment>> d) {
+    return run<Page<CommentThread>>(m_e, [link](core::IHttp &h, const core::JobToken &t, Callback<Page<CommentThread>> d) {
         const std::optional<std::string> id = core::videoIdOf(link);
         if (!id) return fail(d, core::badLink(link, "video"));
         core::fetchComments(h, *id, t, std::move(d));
@@ -253,9 +253,9 @@ Job Account::subscriptions(Callback<Page<Channel>> done)
 
 // ---- the future forms: each is its callback form inside futureOf ----
 
-std::future<Result<WatchResult>> Videos::get(std::string link)
+std::future<Result<Video>> Videos::get(std::string link)
 {
-    return detail::futureOf<WatchResult>([&](Callback<WatchResult> cb) { return get(std::move(link), std::move(cb)); });
+    return detail::futureOf<Video>([&](Callback<Video> cb) { return get(std::move(link), std::move(cb)); });
 }
 std::future<Result<Player>> Videos::player(std::string link)
 {
@@ -273,13 +273,13 @@ std::future<Result<Votes>> Videos::votes(std::string link)
 {
     return detail::futureOf<Votes>([&](Callback<Votes> cb) { return votes(std::move(link), std::move(cb)); });
 }
-std::future<Result<Page<Video>>> Search::videos(std::string query)
+std::future<Result<Page<VideoItem>>> Search::videos(std::string query)
 {
-    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return videos(std::move(query), std::move(cb)); });
+    return detail::futureOf<Page<VideoItem>>([&](Callback<Page<VideoItem>> cb) { return videos(std::move(query), std::move(cb)); });
 }
-std::future<Result<Page<Video>>> Search::videos(std::string query, SearchOptions options)
+std::future<Result<Page<VideoItem>>> Search::videos(std::string query, SearchOptions options)
 {
-    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return videos(std::move(query), options, std::move(cb)); });
+    return detail::futureOf<Page<VideoItem>>([&](Callback<Page<VideoItem>> cb) { return videos(std::move(query), options, std::move(cb)); });
 }
 std::future<Result<Page<Channel>>> Search::channels(std::string query)
 {
@@ -298,37 +298,37 @@ std::future<Result<Channel>> Channels::get(std::string link)
 {
     return detail::futureOf<Channel>([&](Callback<Channel> cb) { return get(std::move(link), std::move(cb)); });
 }
-std::future<Result<Page<Video>>> Channels::videos(std::string link)
+std::future<Result<Page<VideoItem>>> Channels::videos(std::string link)
 {
-    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return videos(std::move(link), std::move(cb)); });
+    return detail::futureOf<Page<VideoItem>>([&](Callback<Page<VideoItem>> cb) { return videos(std::move(link), std::move(cb)); });
 }
 std::future<Result<Page<Playlist>>> Channels::playlists(std::string link)
 {
     return detail::futureOf<Page<Playlist>>([&](Callback<Page<Playlist>> cb) { return playlists(std::move(link), std::move(cb)); });
 }
-std::future<Result<Page<Video>>> Playlists::videos(std::string link)
+std::future<Result<Page<VideoItem>>> Playlists::videos(std::string link)
 {
-    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return videos(std::move(link), std::move(cb)); });
+    return detail::futureOf<Page<VideoItem>>([&](Callback<Page<VideoItem>> cb) { return videos(std::move(link), std::move(cb)); });
 }
-std::future<Result<Page<Video>>> Feeds::home()
+std::future<Result<Page<VideoItem>>> Feeds::home()
 {
-    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return home(std::move(cb)); });
+    return detail::futureOf<Page<VideoItem>>([&](Callback<Page<VideoItem>> cb) { return home(std::move(cb)); });
 }
-std::future<Result<Page<Video>>> Feeds::subscriptions()
+std::future<Result<Page<VideoItem>>> Feeds::subscriptions()
 {
-    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return subscriptions(std::move(cb)); });
+    return detail::futureOf<Page<VideoItem>>([&](Callback<Page<VideoItem>> cb) { return subscriptions(std::move(cb)); });
 }
-std::future<Result<Page<Video>>> Feeds::history()
+std::future<Result<Page<VideoItem>>> Feeds::history()
 {
-    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return history(std::move(cb)); });
+    return detail::futureOf<Page<VideoItem>>([&](Callback<Page<VideoItem>> cb) { return history(std::move(cb)); });
 }
-std::future<Result<Page<Video>>> Feeds::topic(std::string id)
+std::future<Result<Page<VideoItem>>> Feeds::topic(std::string id)
 {
-    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return topic(std::move(id), std::move(cb)); });
+    return detail::futureOf<Page<VideoItem>>([&](Callback<Page<VideoItem>> cb) { return topic(std::move(id), std::move(cb)); });
 }
-std::future<Result<Page<Comment>>> Comments::list(std::string link)
+std::future<Result<Page<CommentThread>>> Comments::list(std::string link)
 {
-    return detail::futureOf<Page<Comment>>([&](Callback<Page<Comment>> cb) { return list(std::move(link), std::move(cb)); });
+    return detail::futureOf<Page<CommentThread>>([&](Callback<Page<CommentThread>> cb) { return list(std::move(link), std::move(cb)); });
 }
 std::future<Result<Done>> Comments::post(std::string link, std::string text)
 {

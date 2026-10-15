@@ -24,6 +24,7 @@ TEST_CASE("textmatch") {
     CHECK(isClockText("3:07"));  CHECK(isClockText("12:03"));  CHECK(isClockText("1:02:03"));
     CHECK_FALSE(isClockText("LIVE")); CHECK_FALSE(isClockText("123:4")); CHECK_FALSE(isClockText(""));
     CHECK(isClockText("1:2:03"));   // the QRegExp allows a 1-digit minute group
+    CHECK(clockSecs("4:56") == 296); CHECK(clockSecs("1:02:03") == 3723); CHECK(clockSecs("LIVE") == 0);
     CHECK_FALSE(isClockText("100:03"));
     CHECK(hasYear("Streamed Mar 3, 2021")); CHECK_FALSE(hasYear("12345 views")); CHECK_FALSE(hasYear("3 years ago"));
     CHECK(hasYear("2021")); CHECK_FALSE(hasYear("x2021"));
@@ -68,19 +69,19 @@ TEST_CASE("continuationLegacy") {
     CHECK(findContinuationToken(std::string(payloads::kContinuationLegacy)) == "LEG456");
 }
 TEST_CASE("videoRendererAvatar") {
-    Video v = parseVideoRenderer(std::string(payloads::kVideoRendererAvatar));
-    CHECK(v.avatarUrl == "https://big/a.jpg");
+    VideoItem v = parseVideoRenderer(std::string(payloads::kVideoRendererAvatar));
+    CHECK(v.channel.avatarUrl == "https://big/a.jpg");
 }
 TEST_CASE("playlistRendererParses") {
     Playlist p = parsePlaylistRenderer(std::string(payloads::kPlaylistRenderer));
     CHECK(p.id == "PL123");
     CHECK(p.title == "My List");
     CHECK(p.videoCount == 42);
-    CHECK(p.channelName == "Chan");
+    CHECK(p.owner.name == "Chan");
 }
 TEST_CASE("playlistVideosCollected") {
     std::string next;
-    std::vector<Video> v = parseVideoList(std::string(payloads::kPlaylistVideos), &next);
+    std::vector<VideoItem> v = parseVideoList(std::string(payloads::kPlaylistVideos), &next);
     REQUIRE(v.size() == 2);
     CHECK(v[0].id == "v1");
 }
@@ -96,8 +97,8 @@ TEST_CASE("channelHeaderParses") {
     Channel u = parseChannel(std::string(payloads::kC4Header));
     CHECK(u.id == "UCxyz");
     CHECK(u.name == "Cool Channel");
-    CHECK(u.subscriberCount == "1.2M subscribers");
-    CHECK(u.thumbnailUrl == "https://a/l.jpg");
+    CHECK(u.subscriberText == "1.2M subscribers");
+    CHECK(u.avatarUrl == "https://a/l.jpg");
     Channel u2 = parseChannel(std::string(payloads::kC4HeaderBanner));
     CHECK(u2.bannerUrl == "http://b/c4big.jpg");
 }
@@ -114,43 +115,43 @@ TEST_CASE("channelPageHeaderParses") {
     REQUIRE(!resp.empty());
     Channel u = parseChannel(resp);
     CHECK(u.name == "Google for Developers");
-    CHECK(u.subscriberCount == "2.66M subscribers");
-    CHECK(u.thumbnailUrl == "http://a/s160.jpg");
+    CHECK(u.subscriberText == "2.66M subscribers");
+    CHECK(u.avatarUrl == "http://a/s160.jpg");
     CHECK(u.id == "UCabc");
     CHECK(u.handle == "@GoogleDevelopers");
-    CHECK(u.videoCount == "6K videos");
+    CHECK(u.videoCountText == "6K videos");
     CHECK(u.bannerUrl == "http://b/banner1600.jpg");
 }
 TEST_CASE("watchPageParses") {
     const std::string next = loadFixtureRaw("watch_next.json");
-    Video primary; std::vector<Video> related;
-    parseWatchPage(next, &primary, &related);
+    Video primary;
+    parseWatchPage(next, &primary);
     CHECK(primary.title == "The Title");
     CHECK(primary.description == "Hello description");
-    CHECK(primary.channelName == "Creator");
-    CHECK(primary.avatarUrl == "https://a/av.jpg");
-    CHECK(primary.channelId == "UCowner");
+    CHECK(primary.channel.name == "Creator");
+    CHECK(primary.channel.avatarUrl == "https://a/av.jpg");
+    CHECK(primary.channel.id == "UCowner");
     CHECK(primary.likeText == "9.9K");
     CHECK(primary.viewText == "1,234 views");
-    REQUIRE(related.size() >= 1);
-    CHECK(related.front().id == "rel1");
+    REQUIRE(primary.related.items.size() >= 1);
+    CHECK(primary.related.items.front().id == "rel1");
 }
 TEST_CASE("watch_extracts_subscribe_state") {
-    Video primary; std::vector<Video> related;
-    parseWatchPage(std::string_view(payloads::kNextSubscribedTv), &primary, &related);
-    CHECK(primary.subscribed);
-    CHECK(primary.channelId == "UCowner");
+    Video primary;
+    parseWatchPage(std::string_view(payloads::kNextSubscribedTv), &primary);
+    CHECK(primary.channel.subscribed);
+    CHECK(primary.channel.id == "UCowner");
 }
 TEST_CASE("watch_tv_like_count_and_state") {
-    Video primary; std::vector<Video> related;
-    parseWatchPage(std::string_view(payloads::kNextTvLikeState), &primary, &related);
+    Video primary;
+    parseWatchPage(std::string_view(payloads::kNextTvLikeState), &primary);
     CHECK(primary.likeText == "8.8K");
-    CHECK(primary.likeStatus == 1);
+    CHECK(primary.myRating == Rating::Like);
 }
 TEST_CASE("watch_extracts_like_state") {
-    Video primary; std::vector<Video> related;
-    parseWatchPage(std::string_view(payloads::kNextLikedWeb), &primary, &related);
-    CHECK(primary.likeStatus == 1);
+    Video primary;
+    parseWatchPage(std::string_view(payloads::kNextLikedWeb), &primary);
+    CHECK(primary.myRating == Rating::Like);
     REQUIRE(primary.likeCount.has_value());
     CHECK(*primary.likeCount == 1234);
 }
@@ -161,7 +162,7 @@ TEST_CASE("recursionDepthGuarded") {
     for (int i = 0; i < 500; ++i) deep += "}";
     (void)findContinuationToken(deep);
     std::string next;
-    std::vector<Video> v = parseVideoList(deep, &next);
+    std::vector<VideoItem> v = parseVideoList(deep, &next);
     CHECK(v.empty());
 }
 TEST_CASE("continuationAbsent") {
@@ -170,12 +171,12 @@ TEST_CASE("continuationAbsent") {
 TEST_CASE("videoList") {
     const std::string resp = loadFixtureRaw("search_videos.json");
     std::string token;
-    std::vector<Video> v = parseVideoList(resp, &token);
+    std::vector<VideoItem> v = parseVideoList(resp, &token);
     REQUIRE(v.size() == 2);
     CHECK(v[0].id == "aaa11111111");
     CHECK(v[0].title == "First Video");
-    CHECK(v[0].channelName == "Chan A");
-    CHECK(v[0].duration == "3:21");
+    CHECK(v[0].channel.name == "Chan A");
+    CHECK(v[0].durationText == "3:21");
     CHECK(v[0].viewCount == 1234);
     CHECK(v[1].id == "bbb22222222");
     CHECK(v[1].title == "Second Video");
@@ -186,7 +187,7 @@ TEST_CASE("videoListBrowseFeed") {
     const std::string resp = loadFixtureRaw("browse_feed.json");
     REQUIRE(!resp.empty());
     std::string token;
-    std::vector<Video> v = parseVideoList(resp, &token);
+    std::vector<VideoItem> v = parseVideoList(resp, &token);
     REQUIRE(v.size() == 2);
     CHECK(v[0].id == "ccc33333333");
     CHECK(v[0].title == "Feed One");
@@ -197,37 +198,39 @@ TEST_CASE("lockupRelatedParses") {
     const std::string resp = loadFixtureRaw("next_lockup.json");
     REQUIRE(!resp.empty());
     std::string token;
-    std::vector<Video> v = parseVideoList(resp, &token);
+    std::vector<VideoItem> v = parseVideoList(resp, &token);
     REQUIRE(v.size() == 2);
     CHECK(v[0].id == "Zi_XLOBDo_Y");
     CHECK(v[0].title == "Michael Jackson - Billie Jean (Official Video)");
     CHECK(!v[0].thumbnailUrl.empty());
-    CHECK(!v[0].avatarUrl.empty());
-    CHECK(v[0].channelId.rfind("UC", 0) == 0);
-    CHECK(v[0].channelName == "Michael Jackson");
-    CHECK(v[0].duration == "4:56");
+    CHECK(!v[0].channel.avatarUrl.empty());
+    CHECK(v[0].channel.id.rfind("UC", 0) == 0);
+    CHECK(v[0].channel.name == "Michael Jackson");
+    CHECK(v[0].durationText == "4:56");
+    CHECK(v[0].durationSecs == 296);
     CHECK(v[0].viewText.find("views") != std::string::npos);
-    CHECK(v[0].date.find("ago") != std::string::npos);
+    CHECK(v[0].publishedText.find("ago") != std::string::npos);
 }
 // A channel's own Videos tab has a single metadata row ("N views", "date") and no channel
 // name; row 0 used to be taken as the channel name, so channelName read "97K views".
 TEST_CASE("a channel tab lockup has no channel row") {
     const std::string resp = loadFixtureRaw("channel_videos_lockup.json");
     std::string token;
-    std::vector<Video> v = parseVideoList(resp, &token);
+    std::vector<VideoItem> v = parseVideoList(resp, &token);
     REQUIRE(v.size() == 1);
     CHECK(v[0].id == "5b3n-u_0QAI");
-    CHECK(v[0].channelName.empty());
+    CHECK(v[0].channel.name.empty());
     CHECK(v[0].viewText == "97K views");
-    CHECK(v[0].date == "1 day ago");
+    CHECK(v[0].publishedText == "1 day ago");
 }
 TEST_CASE("comments") {
     const std::string p = loadFixtureRaw("comments_page.json");
     std::string token;
-    std::vector<Comment> c = parseComments(p, &token);
+    std::vector<CommentThread> c = parseComments(p, &token);
     REQUIRE(c.size() == 2);
-    CHECK(c[0].author == "Alice");
-    CHECK(c[0].body == "Nice video");
+    CHECK(c[0].comment.author.name == "Alice");
+    CHECK(c[0].comment.text == "Nice video");
+    CHECK(c[0].comment.author.avatarUrl == "https://yt3.ggpht.com/a.jpg");
     CHECK(token == "MORE_COMMENTS");
 }
 TEST_CASE("parsesPlaylistLockups") {
@@ -247,7 +250,7 @@ TEST_CASE("parsesAccountsList") {
     const AccountInfo a = parseAccountsList(j);
     CHECK(a.name == "Ivan Petrov");
     CHECK(a.handle == "@ivanpetrov");
-    CHECK(a.thumbnailUrl == "https://yt3.example/big.jpg");
+    CHECK(a.avatarUrl == "https://yt3.example/big.jpg");
     CHECK(a.channelId == "UCabc123def");
     CHECK(parseAccountsList("{}").name.empty());
     CHECK(parseAccountsList("not json at all").name.empty());
@@ -256,18 +259,18 @@ TEST_CASE("parsesTileRenderers") {
     const std::string j = loadFixtureRaw("tiles_history.json");
     REQUIRE(!j.empty());
     std::string token;
-    const std::vector<Video> v = parseVideoList(j, &token);
+    const std::vector<VideoItem> v = parseVideoList(j, &token);
     REQUIRE(v.size() == 2);
     CHECK(v[0].id == "u7OQ7kKBEHs");
     CHECK(v[0].title == "What if You Encounter an ENEMY");
-    CHECK(v[0].channelName == "kesMadgik");
+    CHECK(v[0].channel.name == "kesMadgik");
     CHECK(v[0].viewText == "350K views");
-    CHECK(v[0].duration == "0:59");
-    CHECK(v[0].largeThumbnailUrl == "https://i.ytimg.com/vi/u7OQ7kKBEHs/sddefault.jpg");
+    CHECK(v[0].durationText == "0:59");
+    CHECK(v[0].thumbnailUrl == "https://i.ytimg.com/vi/u7OQ7kKBEHs/sddefault.jpg");
     CHECK(!v[0].thumbnailUrl.empty());
     CHECK(v[1].id == "dQw4w9WgXcQ");
     CHECK(v[1].title == "Second Video");
-    CHECK(v[1].channelName == "Channel B");
+    CHECK(v[1].channel.name == "Channel B");
 }
 // Security review: AccountItemCollector re-scans every captured accountItem with a
 // fresh depth counter, so a chain of nested "accountItem" keys defeated the scanner's
@@ -503,4 +506,50 @@ TEST_CASE("storyboardSpecRejectsOutOfRangeNumbers") {
         parseStoryboardSpec("https://x/$L/$N.jpg|48#27#100#10#10#0#d#s", INT64_MAX);
     REQUIRE(l.size() == 1);
     CHECK(l[0].intervalMs == 0);                      // no fallback from an absurd length
+}
+
+// The fields of a real (trimmed) commentEntityPayload: the comment id, the author's channel,
+// the viewer's own comment, the displayed like and reply counts.
+TEST_CASE("a comment carries its id, author channel, likes, replies and mine") {
+    const std::string page =
+        "{\"frameworkUpdates\":{\"entityBatchUpdate\":{\"mutations\":[{\"payload\":{\"commentEntityPayload\":{"
+        "\"properties\":{\"commentId\":\"Ugxzbv\",\"content\":{\"content\":\"Hi\"},\"publishedTime\":\"6 years ago\"},"
+        "\"author\":{\"channelId\":\"UCNLgz\",\"displayName\":\"@candy\",\"avatarThumbnailUrl\":\"https://yt3/a\","
+        "\"isCurrentUser\":true},"
+        "\"toolbar\":{\"likeCountNotliked\":\"291K\",\"replyCount\":\"675\"}}}}]}}}";
+    std::string token;
+    const std::vector<CommentThread> c = parseComments(page, &token);
+    REQUIRE(c.size() == 1);
+    CHECK(c[0].comment.id == "Ugxzbv");
+    CHECK(c[0].comment.text == "Hi");
+    CHECK(c[0].comment.publishedText == "6 years ago");
+    CHECK(c[0].comment.author.id == "UCNLgz");
+    CHECK(c[0].comment.author.name == "@candy");
+    CHECK(c[0].comment.author.avatarUrl == "https://yt3/a");
+    CHECK(c[0].comment.mine);
+    CHECK(c[0].comment.likeText == "291K");
+    CHECK(c[0].replyText == "675");
+}
+// The related list continues from secondaryResults; the comments section's token comes
+// first in the document and must not be taken for it.
+TEST_CASE("a watch page: date, exact views and the related list's continuation") {
+    const std::string next =
+        "{\"contents\":{\"twoColumnWatchNextResults\":{\"results\":{\"results\":{\"contents\":["
+        "{\"videoPrimaryInfoRenderer\":{\"title\":{\"simpleText\":\"T\"},\"dateText\":{\"simpleText\":\"Oct 25, 2009\"},"
+        "\"viewCount\":{\"videoViewCountRenderer\":{\"viewCount\":{\"simpleText\":\"1,234,567 views\"}}}}},"
+        "{\"itemSectionRenderer\":{\"contents\":[{\"continuationItemRenderer\":{\"continuationEndpoint\":"
+        "{\"continuationCommand\":{\"token\":\"COMMENTS\"}}}}]}}]}},"
+        "\"secondaryResults\":{\"secondaryResults\":{\"results\":["
+        "{\"lockupViewModel\":{\"contentId\":\"rel1\",\"contentType\":\"LOCKUP_CONTENT_TYPE_VIDEO\"}},"
+        "{\"continuationItemRenderer\":{\"continuationEndpoint\":{\"continuationCommand\":{\"token\":\"RELATED\"}}}}]}}}}}";
+    Video v;
+    std::string related;
+    parseWatchPage(next, &v, &related);
+    CHECK(v.title == "T");
+    CHECK(v.publishedText == "Oct 25, 2009");
+    CHECK(v.viewText == "1,234,567 views");
+    CHECK(v.viewCount == 1234567);
+    REQUIRE(v.related.items.size() == 1);
+    CHECK(v.related.items[0].id == "rel1");
+    CHECK(related == "RELATED");
 }

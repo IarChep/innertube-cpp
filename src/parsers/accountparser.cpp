@@ -50,7 +50,7 @@ AccountInfo parseAccountsList(std::string_view response)
 
     if (pick->accountName)   out.name = str(textOf(*pick->accountName));
     if (pick->channelHandle) out.handle = str(textOf(*pick->channelHandle));
-    if (pick->accountPhoto)  out.thumbnailUrl = str(lastThumbUrl(*pick->accountPhoto));   // last = largest
+    if (pick->accountPhoto)  out.avatarUrl = str(lastThumbUrl(*pick->accountPhoto));   // last = largest
     if (pick->serviceEndpoint && pick->serviceEndpoint->selectActiveIdentityEndpoint
         && pick->serviceEndpoint->selectActiveIdentityEndpoint->supportedTokens) {
         for (const rj::SupTok &tok :

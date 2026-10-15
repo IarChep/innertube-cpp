@@ -8,21 +8,6 @@
 #include <vector>
 #include <yt/result.h>
 namespace yt {
-struct Video {
-    std::string id, title, description, thumbnailUrl, largeThumbnailUrl, date, duration, url,
-                streamUrl, channelId, channelName, avatarUrl, likeText, viewText;
-    int64_t viewCount = 0;
-    int likeStatus = 0;                      // 0 Indifferent, 1 Liked, 2 Disliked
-    std::optional<int64_t> likeCount;        // authed /next only
-    std::optional<int64_t> dislikeCount;     // RYD
-    bool subscribed = false;                 // viewer's state for the channel (authed /next)
-    bool downloadable = false;
-};
-struct Playlist { std::string id, title, description, thumbnailUrl, date, channelId, channelName; int videoCount = 0; };
-struct Channel  { std::string id, name, description, thumbnailUrl, subscriberCount, bannerUrl, handle, videoCount; bool subscribed = false; };
-struct Comment  { std::string id, body, date, channelId, author, thumbnailUrl, videoId; };
-struct AccountInfo { std::string id, name, thumbnailUrl, handle, channelId; };
-
 namespace detail { struct CursorAccess; }
 
 // Where a list continues. Opaque: hand it to Client::more. False on the last page.
@@ -47,7 +32,56 @@ enum class Rating { None, Like, Dislike };                       // the viewer's
 enum class SearchSort { Relevance, UploadDate, Views, TopRated };
 struct SearchOptions { SearchSort sort = SearchSort::Relevance; };
 
-struct WatchResult  { Video primary; std::vector<Video> related; };
-struct Votes        { std::optional<int64_t> likes, dislikes; };
+// A channel as other things point at it: a video's uploader, a comment's author, a
+// playlist's owner.
+struct ChannelRef {
+    std::string id, name, avatarUrl;       // id: UC…; any part may be empty when YouTube omits it
+    bool subscribed = false;               // the viewer's state; known on a signed-in watch page only
+};
+
+// A video as a list shows it (feeds, search, a channel's or playlist's videos, related).
+// Texts are as YouTube displays them, localized by hl; the numbers are 0 when unknown.
+struct VideoItem {
+    std::string id, title, thumbnailUrl;
+    std::string durationText, viewText, publishedText;   // "4:56", "1.2M views", "3 days ago"
+    int64_t durationSecs = 0;              // from durationText
+    int64_t viewCount = 0;                 // only where YouTube gives the exact number
+    ChannelRef channel;
+};
+
+// A watch page: the video in full and its first page of related videos.
+struct Video : VideoItem {
+    std::string description, likeText;     // likeText: "8.8K", as displayed
+    std::optional<int64_t> likeCount;      // exact, when the page carries it
+    Rating myRating = Rating::None;        // signed in: the viewer's like/dislike
+    Page<VideoItem> related;
+};
+
+struct Playlist {
+    std::string id, title, description, thumbnailUrl;
+    ChannelRef owner;
+    int64_t videoCount = 0;
+    Page<VideoItem> entries;               // playlists().get(): the first page; empty in lists
+};
+
+struct Channel {
+    std::string id, name, handle, description, avatarUrl, bannerUrl;
+    std::string subscriberText, videoCountText;          // "15.1M subscribers", "4.5K videos"
+    bool subscribed = false;               // signed in: the viewer's state
+};
+
+struct Comment {
+    std::string id, text, publishedText, likeText;   // likeText as displayed ("291K")
+    ChannelRef author;
+    bool mine = false;                     // signed in: written by the viewer
+};
+// A top-level comment and its replies.
+struct CommentThread {
+    Comment comment;
+    std::string replyText;                 // "675", "1.2K": as displayed; empty = no replies
+};
+
+struct AccountInfo { std::string id, name, avatarUrl, handle, channelId; };
+struct Votes       { std::optional<int64_t> likes, dislikes; };
 }
 #endif

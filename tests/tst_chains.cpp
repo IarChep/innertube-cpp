@@ -318,7 +318,7 @@ const char *kSearchPage2 =
 TEST_CASE("videoBrowseFeed") {
     FakeHttp t; t.queue("browse", loadFixtureRaw("browse_feed.json"));
     VideoListSpec spec; spec.kind = VideoListSpec::Browse; spec.browseId = "FEwhat_to_watch";
-    Cap<Page<Video>> c;
+    Cap<Page<VideoItem>> c;
     fetchVideoList(t, spec, newJob(), c.fn());
     t.flush();
     CHECK(c.calls == 1);
@@ -333,7 +333,7 @@ TEST_CASE("a signed-in feed continues on the client that served page 1") {
     t.queue("browse", loadFixtureRaw("browse_feed.json"));
     t.queue("browse", loadFixtureRaw("browse_feed.json"));
     VideoListSpec spec; spec.browseId = "FEsubscriptions";
-    Cap<Page<Video>> first, second;
+    Cap<Page<VideoItem>> first, second;
     fetchVideoList(t, spec, newJob(), first.fn());
     t.flush();
     REQUIRE(first.r.ok());
@@ -351,7 +351,7 @@ TEST_CASE("search pages continue through the search endpoint without the query")
     t.queue("search", kSearchPage1);
     t.queue("search", kSearchPage2);
     VideoListSpec spec; spec.kind = VideoListSpec::Search; spec.query = "cats"; spec.sort = SearchSort::UploadDate;
-    Cap<Page<Video>> first, second;
+    Cap<Page<VideoItem>> first, second;
     fetchVideoList(t, spec, newJob(), first.fn());
     t.flush();
     REQUIRE(first.r.ok());
@@ -370,8 +370,8 @@ TEST_CASE("search pages continue through the search endpoint without the query")
 // Review focus: an exhausted cursor fails and sends nothing.
 TEST_CASE("more with no next page fails with InvalidArgument and sends nothing") {
     FakeHttp t;
-    Cap<Page<Video>> c;
-    fetchMore(t, Cursor<Video>{}, newJob(), c.fn());
+    Cap<Page<VideoItem>> c;
+    fetchMore(t, Cursor<VideoItem>{}, newJob(), c.fn());
     t.flush();
     REQUIRE(c.calls == 1);
     REQUIRE_FALSE(c.r.ok());
@@ -382,7 +382,7 @@ TEST_CASE("videoListTransportErrorKeepsCode") {
     FakeHttp t; t.session().bearer = "tok";
     t.queue("browse", "{\"error\":{}}", 401);
     VideoListSpec spec; spec.browseId = "FEsubscriptions";
-    Cap<Page<Video>> c;
+    Cap<Page<VideoItem>> c;
     fetchVideoList(t, spec, newJob(), c.fn());
     t.flush();
     REQUIRE_FALSE(c.r.ok());
@@ -394,7 +394,7 @@ TEST_CASE("comments: two steps, then pages through next") {
     t.queue("next", loadFixtureRaw("next_for_comments.json"));
     t.queue("next", loadFixtureRaw("comments_page.json"));
     t.queue("next", loadFixtureRaw("comments_page.json"));
-    Cap<Page<Comment>> c, more;
+    Cap<Page<CommentThread>> c, more;
     fetchComments(t, "aaa11111111", newJob(), c.fn());
     t.flush();
     REQUIRE(c.r.ok());
@@ -410,7 +410,7 @@ TEST_CASE("comments: two steps, then pages through next") {
 }
 TEST_CASE("commentsDisabled") {
     FakeHttp t; t.queue("next", "{}");
-    Cap<Page<Comment>> c;
+    Cap<Page<CommentThread>> c;
     fetchComments(t, "aaa11111111", newJob(), c.fn());
     t.flush();
     CHECK(t.sent.size() == 1);
@@ -424,7 +424,7 @@ TEST_CASE("commentsCanceledBetweenSteps") {
     t.queue("next", loadFixtureRaw("next_for_comments.json"));
     t.queue("next", loadFixtureRaw("comments_page.json"));
     JobToken job = newJob();
-    Cap<Page<Comment>> c;
+    Cap<Page<CommentThread>> c;
     fetchComments(t, "aaa11111111", job, c.fn());
     job->canceled = true;
     t.flush();
@@ -473,14 +473,14 @@ TEST_CASE("playlistBrowse") {
 // ---- fetchWatch ----
 TEST_CASE("videoLoadWatch") {
     FakeHttp t; t.queue("next", loadFixtureRaw("watch_next.json"));
-    Cap<WatchResult> c;
+    Cap<Video> c;
     fetchWatch(t, "vid42", newJob(), c.fn());
     t.flush();
     CHECK(c.calls == 1);
     REQUIRE(c.r.ok());
-    CHECK(c.r.value.primary.id == "vid42");
-    CHECK(c.r.value.primary.description == "Hello description");
-    CHECK(c.r.value.related.size() >= 1);
+    CHECK(c.r.value.id == "vid42");
+    CHECK(c.r.value.description == "Hello description");
+    CHECK(c.r.value.related.items.size() >= 1);
     CHECK(has(t.sent[0], "\"videoId\":\"vid42\""));
 }
 
@@ -694,7 +694,7 @@ TEST_CASE("canceledJobDropsDelivery") {
     VideoListSpec spec; spec.kind = VideoListSpec::Browse; spec.browseId = "FEwhat_to_watch";
     JobToken job = newJob();
     int calls = 0;
-    fetchVideoList(t, spec, job, [&](const Result<Page<Video>> &) { ++calls; });
+    fetchVideoList(t, spec, job, [&](const Result<Page<VideoItem>> &) { ++calls; });
     job->canceled = true;
     t.flush();
     CHECK(calls == 0);
@@ -704,7 +704,7 @@ TEST_CASE("routing") {
         FakeHttp http;
         if (signedIn) http.session().bearer = "tok";
         VideoListSpec s; s.kind = VideoListSpec::Browse; s.browseId = id;
-        fetchVideoList(http, s, newJob(), [](const Result<Page<Video>> &) {});
+        fetchVideoList(http, s, newJob(), [](const Result<Page<VideoItem>> &) {});
         return http.lastClientFor("browse");
     };
     CHECK(browseClient("FEwhat_to_watch", true) == (int)ClientId::TVHTML5);
@@ -714,10 +714,10 @@ TEST_CASE("routing") {
     CHECK(browseClient("VLWL", true) == (int)ClientId::TVHTML5);    // requires auth: always TV
     CHECK(browseClient("VLWL", false) == -1);                       // ...and signed out, nothing is sent (spec S4)
     FakeHttp authed; authed.session().bearer = "tok";
-    fetchWatch(authed, "vid", newJob(), [](const Result<WatchResult> &) {});
+    fetchWatch(authed, "vid", newJob(), [](const Result<Video> &) {});
     CHECK(authed.lastClientFor("next") == (int)ClientId::TVHTML5);
     FakeHttp anon;
-    fetchWatch(anon, "vid", newJob(), [](const Result<WatchResult> &) {});
+    fetchWatch(anon, "vid", newJob(), [](const Result<Video> &) {});
     CHECK(anon.lastClientFor("next") == (int)ClientId::WEB);
 }
 
@@ -828,12 +828,12 @@ TEST_CASE("sign-in QR: garbage is refused") {
     CHECK_FALSE(c.r.ok());
 }
 TEST_CASE("cursorAccessRoundTrip") {
-    const Cursor<Video> c = detail::CursorAccess::make<Video>("browse", ClientId::TVHTML5, "TOK");
+    const Cursor<VideoItem> c = detail::CursorAccess::make<VideoItem>("browse", ClientId::TVHTML5, "TOK");
     CHECK(bool(c));
     CHECK(detail::CursorAccess::endpoint(c) == "browse");
     CHECK(detail::CursorAccess::client(c) == ClientId::TVHTML5);
     CHECK(detail::CursorAccess::token(c) == "TOK");
-    CHECK_FALSE(detail::CursorAccess::make<Video>("browse", ClientId::WEB, ""));   // no token = no next page
+    CHECK_FALSE(detail::CursorAccess::make<VideoItem>("browse", ClientId::WEB, ""));   // no token = no next page
 }
 // ---- links into ids ----
 TEST_CASE("videoIdOf and playlistIdOf") {
@@ -907,7 +907,7 @@ TEST_CASE("channel tabs browse the channel with the tab params") {
     t.queue("navigation/resolve_url", "{\"endpoint\":{\"browseEndpoint\":{\"browseId\":\"UCabcabcabcabcabcabcabca\"}}}");
     t.queue("browse", loadFixtureRaw("browse_feed.json"));
     t.queue("browse", "{\"contents\":[{\"playlistRenderer\":{\"playlistId\":\"PL9\",\"title\":{\"simpleText\":\"X\"}}}]}");
-    Cap<Page<Video>> v;
+    Cap<Page<VideoItem>> v;
     Cap<Page<Playlist>> p;
     fetchChannelVideos(t, "@NASA", newJob(), v.fn());
     t.flush();
@@ -975,7 +975,7 @@ TEST_CASE("a signed-in page continued after sign-out fails with AuthRequired and
     FakeHttp t; t.session().bearer = "tok";
     t.queue("browse", loadFixtureRaw("browse_feed.json"));
     VideoListSpec spec; spec.browseId = "FEsubscriptions";
-    Cap<Page<Video>> first, second;
+    Cap<Page<VideoItem>> first, second;
     fetchVideoList(t, spec, newJob(), first.fn());
     t.flush();
     REQUIRE(first.r.value.next);
@@ -1019,21 +1019,21 @@ TEST_CASE("a channel's Videos tab gives its videos the channel, on every page") 
             "{\"richItemRenderer\":{\"content\":{\"lockupViewModel\":{\"contentId\":\"ErAqN6gXqZQ\","
             "\"contentType\":\"LOCKUP_CONTENT_TYPE_VIDEO\",\"metadata\":{\"lockupMetadataViewModel\":{"
             "\"title\":{\"content\":\"B\"}}}}}}}]}}]}");
-    Cap<Page<Video>> first, second;
+    Cap<Page<VideoItem>> first, second;
     fetchChannelVideos(t, "UCLA_DiR1FfKNvjuUpBHmylQ", newJob(), first.fn());
     t.flush();
     REQUIRE(first.r.ok());
     REQUIRE(first.r.value.items.size() == 1);
-    CHECK(first.r.value.items[0].channelId == "UCLA_DiR1FfKNvjuUpBHmylQ");
-    CHECK(first.r.value.items[0].channelName == "NASA");
+    CHECK(first.r.value.items[0].channel.id == "UCLA_DiR1FfKNvjuUpBHmylQ");
+    CHECK(first.r.value.items[0].channel.name == "NASA");
     REQUIRE(first.r.value.next);
     fetchMore(t, first.r.value.next, newJob(), second.fn());
     t.flush();
     REQUIRE(second.r.ok());
     REQUIRE(second.r.value.items.size() == 1);
     CHECK(second.r.value.items[0].id == "ErAqN6gXqZQ");
-    CHECK(second.r.value.items[0].channelId == "UCLA_DiR1FfKNvjuUpBHmylQ");
-    CHECK(second.r.value.items[0].channelName == "NASA");
+    CHECK(second.r.value.items[0].channel.id == "UCLA_DiR1FfKNvjuUpBHmylQ");
+    CHECK(second.r.value.items[0].channel.name == "NASA");
 }
 TEST_CASE("a channel's Playlists tab gives its playlists the channel") {
     FakeHttp t;
@@ -1044,6 +1044,28 @@ TEST_CASE("a channel's Playlists tab gives its playlists the channel") {
     t.flush();
     REQUIRE(c.r.ok());
     REQUIRE(c.r.value.items.size() == 1);
-    CHECK(c.r.value.items[0].channelId == "UCLA_DiR1FfKNvjuUpBHmylQ");
-    CHECK(c.r.value.items[0].channelName == "NASA");
+    CHECK(c.r.value.items[0].owner.id == "UCLA_DiR1FfKNvjuUpBHmylQ");
+    CHECK(c.r.value.items[0].owner.name == "NASA");
+}
+// A watch page's related list is a Page: its cursor continues on /next with the client
+// that served the page.
+TEST_CASE("the related list of a watch page continues through next") {
+    FakeHttp t;
+    t.queue("next",
+            "{\"contents\":{\"twoColumnWatchNextResults\":{\"secondaryResults\":{\"secondaryResults\":{\"results\":["
+            "{\"lockupViewModel\":{\"contentId\":\"rel1\",\"contentType\":\"LOCKUP_CONTENT_TYPE_VIDEO\"}},"
+            "{\"continuationItemRenderer\":{\"continuationEndpoint\":{\"continuationCommand\":{\"token\":\"RELATED\"}}}}]}}}}}");
+    t.queue("next", loadFixtureRaw("browse_feed.json"));
+    Cap<Video> page;
+    Cap<Page<VideoItem>> more;
+    fetchWatch(t, "dQw4w9WgXcQ", newJob(), page.fn());
+    t.flush();
+    REQUIRE(page.r.ok());
+    REQUIRE(page.r.value.related.next);
+    fetchMore(t, page.r.value.related.next, newJob(), more.fn());
+    t.flush();
+    REQUIRE(more.r.ok());
+    CHECK(t.sent[1] == "{\"continuation\":\"RELATED\"}");
+    CHECK(t.sentClients[1] == (int) ClientId::WEB);
+    CHECK(more.r.value.items.size() == 2);
 }

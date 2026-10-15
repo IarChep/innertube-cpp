@@ -22,13 +22,13 @@ int main(int argc, char **argv)
         if (!r.ok()) return fail(*r.error);
         const yt::Channel &c = r.value;
         std::printf("%s (%s) %s · %s · %s\n", c.name.c_str(), c.id.c_str(), c.handle.c_str(),
-                    c.subscriberCount.c_str(), c.videoCount.c_str());
+                    c.subscriberText.c_str(), c.videoCountText.c_str());
     });
-    client.channels().videos(argv[1], [&](const yt::Result<yt::Page<yt::Video>> &p) {
+    client.channels().videos(argv[1], [&](const yt::Result<yt::Page<yt::VideoItem>> &p) {
         --pending;
         if (!p.ok()) return fail(*p.error);
-        for (const yt::Video &v : p.value.items)
-            std::printf("  %-12s %-8s %s\n", v.id.c_str(), v.duration.c_str(), v.title.c_str());
+        for (const yt::VideoItem &v : p.value.items)
+            std::printf("  %-12s %-8s %s\n", v.id.c_str(), v.durationText.c_str(), v.title.c_str());
     });
 
     while (pending > 0) client.runOnce(100);

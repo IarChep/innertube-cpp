@@ -23,13 +23,13 @@ int main(int argc, char **argv)
     auto fail = [&](const yt::Error &e) { std::fprintf(stderr, "error: %s\n", e.message.c_str()); rc = 1; };
 
     ++pending;
-    client.videos().get(id, [&](const yt::Result<yt::WatchResult> &r) {
+    client.videos().get(id, [&](const yt::Result<yt::Video> &r) {
         --pending;
         if (!r.ok()) return fail(*r.error);
-        const yt::Video &v = r.value.primary;
-        std::printf("%s\n  by %s · %s · %s\n", v.title.c_str(), v.channelName.c_str(), v.viewText.c_str(), v.date.c_str());
-        std::printf("  %zu related, first: %s\n", r.value.related.size(),
-                    r.value.related.empty() ? "-" : r.value.related.front().title.c_str());
+        const yt::Video &v = r.value;
+        std::printf("%s\n  by %s · %s · %s\n", v.title.c_str(), v.channel.name.c_str(), v.viewText.c_str(), v.publishedText.c_str());
+        std::printf("  %zu related, first: %s\n", v.related.items.size(),
+                    v.related.items.empty() ? "-" : v.related.items.front().title.c_str());
     });
 
     ++pending;
@@ -42,11 +42,12 @@ int main(int argc, char **argv)
 
     // Two pages of comments: the second request is started from the first's callback.
     int pagesLeft = 2;
-    yt::Callback<yt::Page<yt::Comment>> onComments = [&](const yt::Result<yt::Page<yt::Comment>> &r) {
+    yt::Callback<yt::Page<yt::CommentThread>> onComments = [&](const yt::Result<yt::Page<yt::CommentThread>> &r) {
         --pending;
         if (!r.ok()) return fail(*r.error);
         if (r.value.disabled) { std::printf("comments are disabled\n"); return; }
-        for (const yt::Comment &c : r.value.items) std::printf("  [%s] %s\n", c.author.c_str(), c.body.substr(0, c.body.find('\n')).c_str());   // first line
+        for (const yt::CommentThread &t : r.value.items)                      // first line of each
+            std::printf("  [%s] %s\n", t.comment.author.name.c_str(), t.comment.text.substr(0, t.comment.text.find('\n')).c_str());
         if (--pagesLeft > 0 && r.value.next) {
             ++pending;
             client.more(r.value.next, onComments);

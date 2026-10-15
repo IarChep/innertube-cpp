@@ -24,6 +24,15 @@ bool isClockText(std::string_view s) {
     if (g.size() == 3) return g[1].size() <= 2 && g[2].size() == 2;
     return false;
 }
+
+int64_t clockSecs(std::string_view s) {
+    if (!isClockText(s)) return 0;
+    int64_t total = 0, n = 0;
+    for (char c : s) {
+        if (c == ':') { total = total * 60 + n; n = 0; } else n = n * 10 + (c - '0');
+    }
+    return total * 60 + n;
+}
 bool hasYear(std::string_view s) {
     // \b\d{4}\b: exactly four digits bounded by non-word chars or the ends.
     auto word = [](char c) { return dig(c) || alpha(c) || c == '_'; };

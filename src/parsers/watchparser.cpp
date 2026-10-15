@@ -1,3 +1,4 @@
+#include "continuation.h"
 #include "rendererinternal.h"
 
 namespace yt {
@@ -108,7 +109,7 @@ static void findLikeState(std::string_view primaryInfo, int *likeStatus, int64_t
 //       must still be visited so the related list is fully collected)
 //   (c) first videoSecondaryInfoRenderer extent captured (same — no consume)
 struct WatchScanner : CollectorBase {
-    std::vector<Video> *related;
+    std::vector<VideoItem> *related;
     std::string_view primary;
     std::string_view secondary;
     std::string_view metadata;   // TVHTML5 singleColumnWatchNextResults (authed /next)
@@ -162,28 +163,35 @@ struct WatchScanner : CollectorBase {
     }
 };
 
-void parseWatchPage(std::string_view response, Video *primary, std::vector<Video> *related)
+void parseWatchPage(std::string_view response, Video *video, std::string *relatedToken)
 {
-    WatchScanner ws;
-    ws.related = related;
-    if (related) related->clear();
-    scan::document(response, ws);
-
-    if (!primary) return;
     Video v;
+    WatchScanner ws;
+    ws.related = &v.related.items;
+    scan::document(response, ws);
+    // The related list's continuation sits at its end, under secondaryResults (WEB); a
+    // whole-document search would find the comments section's token first.
+    if (relatedToken) *relatedToken = findContinuationToken(findExtent(response, "secondaryResults"));
+
     const std::string_view pri = ws.primary;
     if (!pri.empty()) {
         rj::PrimaryInfo info{};
         readJson(info, pri);
         v.title = str(textOf(info.title));
+        if (info.dateText) v.publishedText = str(textOf(*info.dateText));
         const std::string_view vcr = findExtent(pri, "videoViewCountRenderer");
         if (!vcr.empty()) {
             rj::ViewCountR r{};
             readJson(r, vcr);
-            if (r.viewCount) v.viewText = str(textOf(*r.viewCount));
+            if (r.viewCount) {
+                v.viewText = str(textOf(*r.viewCount));
+                v.viewCount = digitsOf(v.viewText);  // the WEB page shows the exact count
+            }
         }
         v.likeText = findLikeText(pri);
-        { int64_t n = -1; findLikeState(pri, &v.likeStatus, &n); if (n >= 0) v.likeCount = n; }
+        int likeStatus = 0;
+        { int64_t n = -1; findLikeState(pri, &likeStatus, &n); if (n >= 0) v.likeCount = n; }
+        v.myRating = likeStatus == 1 ? Rating::Like : likeStatus == 2 ? Rating::Dislike : Rating::None;
     }
     const std::string_view sec = ws.secondary;
     if (!sec.empty()) {
@@ -191,14 +199,14 @@ void parseWatchPage(std::string_view response, Video *primary, std::vector<Video
         if (!owner.empty()) {
             rj::OwnerR r{};
             readJson(r, owner);
-            v.channelName = str(textOf(r.title));
-            if (r.thumbnail) v.avatarUrl = str(lastThumbUrl(*r.thumbnail));
+            v.channel.name = str(textOf(r.title));
+            if (r.thumbnail) v.channel.avatarUrl = str(lastThumbUrl(*r.thumbnail));
             if (r.navigationEndpoint && r.navigationEndpoint->browseEndpoint)
-                v.channelId = str(r.navigationEndpoint->browseEndpoint->browseId);
-            // The viewer's subscribe state (authed /next only) — feeds the VideoPage button.
+                v.channel.id = str(r.navigationEndpoint->browseEndpoint->browseId);
+            // The viewer's subscribe state (authed /next only).
             if (r.subscribeButton && r.subscribeButton->subscribeButtonRenderer
                 && r.subscribeButton->subscribeButtonRenderer->subscribed)
-                v.subscribed = *r.subscribeButton->subscribeButtonRenderer->subscribed;
+                v.channel.subscribed = *r.subscribeButton->subscribeButtonRenderer->subscribed;
         }
         // Description: modern attributedDescription.content (plain string) or legacy runs.
         const std::string_view ad = scan::topLevelValue(sec, "attributedDescription");
@@ -231,21 +239,21 @@ void parseWatchPage(std::string_view response, Video *primary, std::vector<Video
             const std::string_view vcr = findExtent(meta, "videoViewCountRenderer");
             if (!vcr.empty()) { rj::ViewCountR r{}; readJson(r, vcr); if (r.viewCount) v.viewText = str(textOf(*r.viewCount)); }
         }
-        if (v.date.empty()) {
+        if (v.publishedText.empty()) {
             const std::string_view pt = scan::topLevelValue(meta, "publishedTimeText");
-            if (!pt.empty() && pt.front() == '{') { Text tt{}; readJson(tt, pt); v.date = str(textOf(tt)); }
+            if (!pt.empty() && pt.front() == '{') { Text tt{}; readJson(tt, pt); v.publishedText = str(textOf(tt)); }
         }
         const std::string_view owner = findExtent(meta, "videoOwnerRenderer");
         if (!owner.empty()) {
             rj::OwnerR r{}; readJson(r, owner);
-            if (v.channelName.empty()) v.channelName = str(textOf(r.title));
-            if (v.avatarUrl.empty() && r.thumbnail) v.avatarUrl = str(lastThumbUrl(*r.thumbnail));
-            if (v.channelId.empty() && r.navigationEndpoint && r.navigationEndpoint->browseEndpoint)
-                v.channelId = str(r.navigationEndpoint->browseEndpoint->browseId);
-            // The viewer's subscribe state (authed /next only) — feeds the VideoPage button.
+            if (v.channel.name.empty()) v.channel.name = str(textOf(r.title));
+            if (v.channel.avatarUrl.empty() && r.thumbnail) v.channel.avatarUrl = str(lastThumbUrl(*r.thumbnail));
+            if (v.channel.id.empty() && r.navigationEndpoint && r.navigationEndpoint->browseEndpoint)
+                v.channel.id = str(r.navigationEndpoint->browseEndpoint->browseId);
+            // The viewer's subscribe state (authed /next only).
             if (r.subscribeButton && r.subscribeButton->subscribeButtonRenderer
                 && r.subscribeButton->subscribeButtonRenderer->subscribed)
-                v.subscribed = *r.subscribeButton->subscribeButtonRenderer->subscribed;
+                v.channel.subscribed = *r.subscribeButton->subscribeButtonRenderer->subscribed;
         }
         // Description: the TV /next carries it in the structured-description engagement
         // panel (expandableVideoDescriptionBodyRenderer.descriptionBodyText), not in a
@@ -271,18 +279,18 @@ void parseWatchPage(std::string_view response, Video *primary, std::vector<Video
         // Like STATE — the viewer's like/dislike, from the authed likeStatusEntity in
         // frameworkUpdates. This is how the TV /next carries it (there is no like
         // toggleButton), so it restores the like/dislike button on every (re)entry.
-        if (v.likeStatus == 0) {
+        if (v.myRating == Rating::None) {
             const std::string_view lse = findExtent(response, "likeStatusEntity");
             if (!lse.empty()) {
                 rj::LikeStatusEntity e{}; readJson(e, lse);
                 if (e.likeStatus) {
-                    if      (*e.likeStatus == "LIKE")    v.likeStatus = 1;
-                    else if (*e.likeStatus == "DISLIKE") v.likeStatus = 2;
+                    if      (*e.likeStatus == "LIKE")    v.myRating = Rating::Like;
+                    else if (*e.likeStatus == "DISLIKE") v.myRating = Rating::Dislike;
                 }
             }
         }
     }
-    *primary = v;
+    if (video) *video = std::move(v);
 }
 
 }

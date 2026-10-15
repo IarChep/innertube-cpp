@@ -109,7 +109,7 @@ In a GUI, use the callback form instead: it returns a `yt::Job` you can cancel, 
 callback runs where `ClientOptions::deliver` sends it:
 
 ```cpp
-job = yt.videos().get(link, [this](const yt::Result<yt::WatchResult> &r) { show(r); });
+job = yt.videos().get(link, [this](const yt::Result<yt::Video> &r) { show(r); });
 ```
 
 More complete programs are in [`examples/`](examples):

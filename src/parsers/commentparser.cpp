@@ -14,7 +14,7 @@ using namespace gj;
 //   if (token inside onRRE extent)   → use it          (same: findContinuationTokenUnder)
 //   else if (token outside extent)   → use it          (same: findContinuationToken on whole doc)
 struct CommentScanner : CollectorBase {
-    std::vector<Comment> *out;
+    std::vector<CommentThread> *out;
     std::string_view onRRE;          // first top-level onResponseReceivedEndpoints extent
     std::string outsideToken;        // first token found outside the onRRE extent
     std::string createParams;        // first createCommentParams string found (R4)
@@ -44,8 +44,8 @@ struct CommentScanner : CollectorBase {
         if (key == "commentEntityPayload") {
             rj::CommentPayload p{};
             readJson(p, value);
-            const Comment c = fromCommentPayload(p);
-            if (!c.body.empty()) out->push_back(c);
+            const CommentThread t = fromCommentPayload(p);
+            if (!t.comment.text.empty()) out->push_back(t);
             return;
         }
         if (!haveCreateParams && key == "createCommentParams") {
@@ -67,10 +67,10 @@ struct CommentScanner : CollectorBase {
     }
 };
 
-std::vector<Comment> parseComments(std::string_view response, std::string *nextToken,
+std::vector<CommentThread> parseComments(std::string_view response, std::string *nextToken,
                                  std::string *createCommentParams)
 {
-    std::vector<Comment> out;
+    std::vector<CommentThread> out;
     CommentScanner s;
     s.out = &out;
     scan::document(response, s);

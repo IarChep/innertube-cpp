@@ -198,9 +198,9 @@ void Client::setLocale(std::string hl, std::string gl)
     });
 }
 
-Job Client::more(const Cursor<Video> &next, Callback<Page<Video>> done)
+Job Client::more(const Cursor<VideoItem> &next, Callback<Page<VideoItem>> done)
 {
-    return m_engine->start<Result<Page<Video>>>([next](core::IHttp &h, const core::JobToken &t, Callback<Page<Video>> d) {
+    return m_engine->start<Result<Page<VideoItem>>>([next](core::IHttp &h, const core::JobToken &t, Callback<Page<VideoItem>> d) {
         core::fetchMore(h, next, t, std::move(d));
     }, std::move(done));
 }
@@ -219,16 +219,16 @@ Job Client::more(const Cursor<Playlist> &next, Callback<Page<Playlist>> done)
     }, std::move(done));
 }
 
-Job Client::more(const Cursor<Comment> &next, Callback<Page<Comment>> done)
+Job Client::more(const Cursor<CommentThread> &next, Callback<Page<CommentThread>> done)
 {
-    return m_engine->start<Result<Page<Comment>>>([next](core::IHttp &h, const core::JobToken &t, Callback<Page<Comment>> d) {
+    return m_engine->start<Result<Page<CommentThread>>>([next](core::IHttp &h, const core::JobToken &t, Callback<Page<CommentThread>> d) {
         core::fetchMore(h, next, t, std::move(d));
     }, std::move(done));
 }
 
-std::future<Result<Page<Video>>> Client::more(const Cursor<Video> &next)
+std::future<Result<Page<VideoItem>>> Client::more(const Cursor<VideoItem> &next)
 {
-    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return more(next, std::move(cb)); });
+    return detail::futureOf<Page<VideoItem>>([&](Callback<Page<VideoItem>> cb) { return more(next, std::move(cb)); });
 }
 std::future<Result<Page<Channel>>> Client::more(const Cursor<Channel> &next)
 {
@@ -238,9 +238,9 @@ std::future<Result<Page<Playlist>>> Client::more(const Cursor<Playlist> &next)
 {
     return detail::futureOf<Page<Playlist>>([&](Callback<Page<Playlist>> cb) { return more(next, std::move(cb)); });
 }
-std::future<Result<Page<Comment>>> Client::more(const Cursor<Comment> &next)
+std::future<Result<Page<CommentThread>>> Client::more(const Cursor<CommentThread> &next)
 {
-    return detail::futureOf<Page<Comment>>([&](Callback<Page<Comment>> cb) { return more(next, std::move(cb)); });
+    return detail::futureOf<Page<CommentThread>>([&](Callback<Page<CommentThread>> cb) { return more(next, std::move(cb)); });
 }
 
 namespace testing {

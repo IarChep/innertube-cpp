@@ -10,6 +10,7 @@ namespace yt::rj {
 // -- watch page pieces (extracted from findRenderer() subtrees)
 struct PrimaryInfo {
     std::optional<gj::Text> title;
+    std::optional<gj::Text> dateText;         // "Oct 25, 2009"
 };
 struct ViewCountR {
     std::optional<gj::Text> viewCount;

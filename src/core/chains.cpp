@@ -86,14 +86,17 @@ std::string sortParam(SearchSort sort)
 
 // A channel's own tab: its videos and playlists come without a channel row, so they get
 // the channel that was browsed (page 1 learns its name from the channel header).
+ChannelRef &channelOf(VideoItem &v) { return v.channel; }
+ChannelRef &channelOf(Playlist &p) { return p.owner; }
 template <class T> void claim(std::vector<T> &items, detail::Owner &owner, const std::string &body)
 {
-    if constexpr (std::is_same_v<T, Video> || std::is_same_v<T, Playlist>) {
+    if constexpr (std::is_same_v<T, VideoItem> || std::is_same_v<T, Playlist>) {
         if (owner.id.empty()) return;
         if (owner.name.empty()) owner.name = parseChannel(body).name;
         for (T &x : items) {
-            if (x.channelId.empty()) x.channelId = owner.id;
-            if (x.channelName.empty()) x.channelName = owner.name;
+            ChannelRef &c = channelOf(x);
+            if (c.id.empty()) c.id = owner.id;
+            if (c.name.empty()) c.name = owner.name;
         }
     }
 }
@@ -169,11 +172,11 @@ TokenGrant tokenGrantOf(const Reply &r)
 // The first comments page of a video, and the createCommentParams it carries (needed to
 // post a comment).
 void fetchCommentsFirst(IHttp &http, std::string videoId, const JobToken &job,
-                        std::function<void(const Result<Page<Comment>> &, const std::string &createParams)> done)
+                        std::function<void(const Result<Page<CommentThread>> &, const std::string &createParams)> done)
 {
     IHttp *h = &http;
     http.post("next", ClientId::WEB, bodies::nextVideo(videoId), job, [h, job, done](const Reply &r) {
-        Result<Page<Comment>> out;
+        Result<Page<CommentThread>> out;
         if (!r.ok) { out.error = errorOf(r); done(out, std::string()); return; }
         const std::string token = findContinuationTokenUnder(*r.body, "engagementPanels");
         // No panel/token = comments disabled (e.g. made-for-kids): an empty, successful
@@ -181,12 +184,12 @@ void fetchCommentsFirst(IHttp &http, std::string videoId, const JobToken &job,
         if (token.empty()) { out.value.disabled = true; done(out, std::string()); return; }
         if (!live(job)) return;                      // canceled between steps
         h->post("next", ClientId::WEB, bodies::continuation(token), job, [done](const Reply &p) {
-            Result<Page<Comment>> page;
+            Result<Page<CommentThread>> page;
             std::string createParams;
             if (!p.ok) { page.error = errorOf(p); done(page, createParams); return; }
             std::string next;
             page.value.items = parseComments(*p.body, &next, &createParams);
-            page.value.next = detail::CursorAccess::make<Comment>("next", ClientId::WEB, std::move(next));
+            page.value.next = detail::CursorAccess::make<CommentThread>("next", ClientId::WEB, std::move(next));
             done(page, createParams);
         });
     });
@@ -194,16 +197,18 @@ void fetchCommentsFirst(IHttp &http, std::string videoId, const JobToken &job,
 
 } // namespace
 
-void fetchWatch(IHttp &http, std::string videoId, const JobToken &job, Callback<WatchResult> done)
+void fetchWatch(IHttp &http, std::string videoId, const JobToken &job, Callback<Video> done)
 {
     // Signed-in watch goes TVHTML5: only the bearer (and thus only TV) surfaces the
     // viewer's like/subscribe state in /next.
     const ClientId cid = http.session().bearer.empty() ? ClientId::WEB : ClientId::TVHTML5;
-    http.post("next", cid, bodies::nextVideo(videoId), job, [videoId, done](const Reply &r) {
-        Result<WatchResult> out;
+    http.post("next", cid, bodies::nextVideo(videoId), job, [videoId, cid, done](const Reply &r) {
+        Result<Video> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
-        parseWatchPage(*r.body, &out.value.primary, &out.value.related);
-        out.value.primary.id = videoId;              // /next does not echo the id
+        std::string relatedNext;
+        parseWatchPage(*r.body, &out.value, &relatedNext);
+        out.value.id = videoId;                      // /next does not echo the id
+        out.value.related.next = detail::CursorAccess::make<VideoItem>("next", cid, std::move(relatedNext));
         done(out);
     });
 }
@@ -556,14 +561,14 @@ void fetchChannel(IHttp &http, std::string link, const JobToken &job, Callback<C
     });
 }
 
-void fetchChannelVideos(IHttp &http, std::string link, const JobToken &job, Callback<Page<Video>> done)
+void fetchChannelVideos(IHttp &http, std::string link, const JobToken &job, Callback<Page<VideoItem>> done)
 {
     IHttp *h = &http;
     fetchChannelId(http, std::move(link), job, [h, job, done](const Result<std::string> &id) {
-        if (!id.ok()) { Result<Page<Video>> out; out.error = id.error; done(out); return; }
+        if (!id.ok()) { Result<Page<VideoItem>> out; out.error = id.error; done(out); return; }
         if (!live(job)) return;
         h->post("browse", ClientId::WEB, bodies::browse(id.value, Catalog::kChannelVideosTab), job,
-                pageOf<Video>(done, "browse", ClientId::WEB, kParseVideos, detail::Owner{id.value, ""}));
+                pageOf<VideoItem>(done, "browse", ClientId::WEB, kParseVideos, detail::Owner{id.value, ""}));
     });
 }
 
@@ -589,23 +594,23 @@ void channelAction(IHttp &http, std::string link, ActionKind kind, const JobToke
 }
 
 
-void fetchVideoList(IHttp &http, const VideoListSpec &spec, const JobToken &job, Callback<Page<Video>> done)
+void fetchVideoList(IHttp &http, const VideoListSpec &spec, const JobToken &job, Callback<Page<VideoItem>> done)
 {
     if (spec.kind == VideoListSpec::Search) {
         http.post("search", ClientId::WEB, bodies::search(spec.query, sortParam(spec.sort)), job,
-                  pageOf<Video>(std::move(done), "search", ClientId::WEB, kParseVideos));
+                  pageOf<VideoItem>(std::move(done), "search", ClientId::WEB, kParseVideos));
         return;
     }
     if (refusedSignedOut(spec.browseId, http, done)) return;
     const ClientId cid = clientForBrowse(spec.browseId, http.session());
     http.post("browse", cid, bodies::browse(spec.browseId, spec.params), job,
-              pageOf<Video>(std::move(done), "browse", cid, kParseVideos));
+              pageOf<VideoItem>(std::move(done), "browse", cid, kParseVideos));
 }
 
-void fetchComments(IHttp &http, std::string videoId, const JobToken &job, Callback<Page<Comment>> done)
+void fetchComments(IHttp &http, std::string videoId, const JobToken &job, Callback<Page<CommentThread>> done)
 {
     fetchCommentsFirst(http, std::move(videoId), job,
-                       [done](const Result<Page<Comment>> &page, const std::string &) { done(page); });
+                       [done](const Result<Page<CommentThread>> &page, const std::string &) { done(page); });
 }
 
 void fetchUserSearch(IHttp &http, std::string query, const JobToken &job, Callback<Page<Channel>> done)
@@ -637,9 +642,9 @@ void fetchPlaylistSearch(IHttp &http, std::string query, const JobToken &job, Ca
               pageOf<Playlist>(std::move(done), "search", ClientId::WEB, kParsePlaylists));
 }
 
-void fetchMore(IHttp &http, const Cursor<Video> &c, const JobToken &job, Callback<Page<Video>> done)
+void fetchMore(IHttp &http, const Cursor<VideoItem> &c, const JobToken &job, Callback<Page<VideoItem>> done)
 {
-    moreOf<Video>(http, c, job, std::move(done), kParseVideos);
+    moreOf<VideoItem>(http, c, job, std::move(done), kParseVideos);
 }
 void fetchMore(IHttp &http, const Cursor<Channel> &c, const JobToken &job, Callback<Page<Channel>> done)
 {
@@ -649,9 +654,9 @@ void fetchMore(IHttp &http, const Cursor<Playlist> &c, const JobToken &job, Call
 {
     moreOf<Playlist>(http, c, job, std::move(done), kParsePlaylists);
 }
-void fetchMore(IHttp &http, const Cursor<Comment> &c, const JobToken &job, Callback<Page<Comment>> done)
+void fetchMore(IHttp &http, const Cursor<CommentThread> &c, const JobToken &job, Callback<Page<CommentThread>> done)
 {
-    moreOf<Comment>(http, c, job, std::move(done), kParseComments);
+    moreOf<CommentThread>(http, c, job, std::move(done), kParseComments);
 }
 
 void fetchAccount(IHttp &http, const JobToken &job, Callback<AccountInfo> done)
@@ -677,7 +682,7 @@ void postComment(IHttp &http, std::string videoId, std::string text, const JobTo
 {
     IHttp *h = &http;
     fetchCommentsFirst(http, std::move(videoId), job,
-                       [h, text, job, done](const Result<Page<Comment>> &page, const std::string &createParams) {
+                       [h, text, job, done](const Result<Page<CommentThread>> &page, const std::string &createParams) {
         Result<Done> out;
         if (!page.ok()) { out.error = page.error; done(out); return; }
         if (page.value.disabled || createParams.empty()) {

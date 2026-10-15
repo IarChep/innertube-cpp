@@ -72,12 +72,12 @@ private:
 // embed URL (yt::Link). Another kind of link fails with ErrorCode::InvalidArgument.
 class Videos {
 public:
-    Job get(std::string link, Callback<WatchResult> done);               // details + related
+    Job get(std::string link, Callback<Video> done);               // details + related
     Job player(std::string link, Callback<Player> done);                 // every source (yt/player.h)
     Job player(std::string link, unsigned want, Callback<Player> done);  // want: Want* flags; 0 = metadata only
     Job captions(CaptionTrack track, Callback<std::vector<Cue>> done);   // a track from Player::captions
     Job votes(std::string link, Callback<Votes> done);                   // Return YouTube Dislike counts
-    std::future<Result<WatchResult>> get(std::string link);
+    std::future<Result<Video>> get(std::string link);
     std::future<Result<Player>> player(std::string link);
     std::future<Result<Player>> player(std::string link, unsigned want);
     std::future<Result<std::vector<Cue>>> captions(CaptionTrack track);
@@ -93,13 +93,13 @@ private:
 // Search: videos (sortable), channels and playlists, all paged; typing suggestions.
 class Search {
 public:
-    Job videos(std::string query, Callback<Page<Video>> done);
-    Job videos(std::string query, SearchOptions options, Callback<Page<Video>> done);
+    Job videos(std::string query, Callback<Page<VideoItem>> done);
+    Job videos(std::string query, SearchOptions options, Callback<Page<VideoItem>> done);
     Job channels(std::string query, Callback<Page<Channel>> done);
     Job playlists(std::string query, Callback<Page<Playlist>> done);
     Job suggestions(std::string prefix, Callback<std::vector<std::string>> done);
-    std::future<Result<Page<Video>>> videos(std::string query);
-    std::future<Result<Page<Video>>> videos(std::string query, SearchOptions options);
+    std::future<Result<Page<VideoItem>>> videos(std::string query);
+    std::future<Result<Page<VideoItem>>> videos(std::string query, SearchOptions options);
     std::future<Result<Page<Channel>>> channels(std::string query);
     std::future<Result<Page<Playlist>>> playlists(std::string query);
     std::future<Result<std::vector<std::string>>> suggestions(std::string prefix);
@@ -117,10 +117,10 @@ private:
 class Channels {
 public:
     Job get(std::string link, Callback<Channel> done);            // signed in: `subscribed` is the viewer's state
-    Job videos(std::string link, Callback<Page<Video>> done);     // the Videos tab
+    Job videos(std::string link, Callback<Page<VideoItem>> done);     // the Videos tab
     Job playlists(std::string link, Callback<Page<Playlist>> done);
     std::future<Result<Channel>> get(std::string link);
-    std::future<Result<Page<Video>>> videos(std::string link);
+    std::future<Result<Page<VideoItem>>> videos(std::string link);
     std::future<Result<Page<Playlist>>> playlists(std::string link);
     Channels(const Channels &) = delete;
     Channels &operator=(const Channels &) = delete;
@@ -134,8 +134,8 @@ private:
 // videos when signed in) or a /playlist?list= URL.
 class Playlists {
 public:
-    Job videos(std::string link, Callback<Page<Video>> done);
-    std::future<Result<Page<Video>>> videos(std::string link);
+    Job videos(std::string link, Callback<Page<VideoItem>> done);
+    std::future<Result<Page<VideoItem>>> videos(std::string link);
     Playlists(const Playlists &) = delete;
     Playlists &operator=(const Playlists &) = delete;
 private:
@@ -147,14 +147,14 @@ private:
 // Feeds. home() is personal when signed in; subscriptions() and history() need sign-in.
 class Feeds {
 public:
-    Job home(Callback<Page<Video>> done);
-    Job subscriptions(Callback<Page<Video>> done);
-    Job history(Callback<Page<Video>> done);
-    Job topic(std::string id, Callback<Page<Video>> done);        // an id from yt::topicFeeds()
-    std::future<Result<Page<Video>>> home();
-    std::future<Result<Page<Video>>> subscriptions();
-    std::future<Result<Page<Video>>> history();
-    std::future<Result<Page<Video>>> topic(std::string id);
+    Job home(Callback<Page<VideoItem>> done);
+    Job subscriptions(Callback<Page<VideoItem>> done);
+    Job history(Callback<Page<VideoItem>> done);
+    Job topic(std::string id, Callback<Page<VideoItem>> done);        // an id from yt::topicFeeds()
+    std::future<Result<Page<VideoItem>>> home();
+    std::future<Result<Page<VideoItem>>> subscriptions();
+    std::future<Result<Page<VideoItem>>> history();
+    std::future<Result<Page<VideoItem>>> topic(std::string id);
     Feeds(const Feeds &) = delete;
     Feeds &operator=(const Feeds &) = delete;
 private:
@@ -166,9 +166,9 @@ private:
 // Comments of a video (`link` as in Videos). Page::disabled = turned off for the video.
 class Comments {
 public:
-    Job list(std::string link, Callback<Page<Comment>> done);
+    Job list(std::string link, Callback<Page<CommentThread>> done);
     Job post(std::string link, std::string text, Callback<Done> done);   // needs sign-in
-    std::future<Result<Page<Comment>>> list(std::string link);
+    std::future<Result<Page<CommentThread>>> list(std::string link);
     std::future<Result<Done>> post(std::string link, std::string text);
     Comments(const Comments &) = delete;
     Comments &operator=(const Comments &) = delete;
@@ -224,14 +224,14 @@ public:
 
     // The next page of any list (Page::next). The last page's cursor fails with
     // ErrorCode::InvalidArgument and sends nothing.
-    Job more(const Cursor<Video> &next, Callback<Page<Video>> done);
+    Job more(const Cursor<VideoItem> &next, Callback<Page<VideoItem>> done);
     Job more(const Cursor<Channel> &next, Callback<Page<Channel>> done);
     Job more(const Cursor<Playlist> &next, Callback<Page<Playlist>> done);
-    Job more(const Cursor<Comment> &next, Callback<Page<Comment>> done);
-    std::future<Result<Page<Video>>> more(const Cursor<Video> &next);
+    Job more(const Cursor<CommentThread> &next, Callback<Page<CommentThread>> done);
+    std::future<Result<Page<VideoItem>>> more(const Cursor<VideoItem> &next);
     std::future<Result<Page<Channel>>> more(const Cursor<Channel> &next);
     std::future<Result<Page<Playlist>>> more(const Cursor<Playlist> &next);
-    std::future<Result<Page<Comment>>> more(const Cursor<Comment> &next);
+    std::future<Result<Page<CommentThread>>> more(const Cursor<CommentThread> &next);
 
     void setLocale(std::string hl, std::string gl);   // empty keeps the current value; clears caches
     void runOnce(int maxWaitMs);                       // only when ownThread == false

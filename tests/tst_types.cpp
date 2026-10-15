@@ -14,8 +14,11 @@ TEST_CASE("Result ok/error") {
 TEST_CASE("Video defaults") {
     yt::Video v;
     CHECK_FALSE(v.likeCount.has_value());
-    CHECK_FALSE(v.dislikeCount.has_value());
     CHECK(v.viewCount == 0);
+    CHECK(v.myRating == yt::Rating::None);
+    CHECK_FALSE(v.related.next);
+    const yt::VideoItem &item = v;                    // a watch page is a list entry too
+    CHECK(item.channel.id.empty());
     CHECK(yt::Votes{}.likes == std::nullopt);
 }
 TEST_CASE("Player defaults") {
@@ -54,7 +57,7 @@ TEST_CASE("storyboardFrame") {
     CHECK(yt::storyboardFrame(yt::StoryboardLevel{}, 0).url.empty());   // an empty level
 }
 TEST_CASE("Page and Cursor defaults") {
-    yt::Page<yt::Video> p;
+    yt::Page<yt::VideoItem> p;
     CHECK(p.items.empty());
     CHECK_FALSE(p.next);                              // no next page
     CHECK_FALSE(p.disabled);
@@ -66,7 +69,7 @@ TEST_CASE("Page and Cursor defaults") {
 TEST_CASE("the umbrella header is enough") {
     std::optional<yt::Link> l = yt::Link::parse("dQw4w9WgXcQ");
     CHECK(l.has_value());
-    yt::Page<yt::Video> p;
+    yt::Page<yt::VideoItem> p;
     CHECK_FALSE(p.next);
     yt::ClientOptions o;
     CHECK(o.ownThread);

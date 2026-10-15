@@ -10,18 +10,18 @@ namespace yt {
 // renderer object itself (parseVideoRenderer & co, parseText). The buffer only
 // needs to stay alive for the duration of the call.
 std::string parseText(std::string_view field);
-Video parseVideoRenderer(std::string_view r);
+VideoItem parseVideoRenderer(std::string_view r);
 // lockupViewModel (2024+ YouTube surfaces — watch-page related, some feeds/search —
 // replaced compactVideoRenderer/gridVideoRenderer). Caller passes the inner object.
-Video parseLockupViewModel(std::string_view lm);
+VideoItem parseLockupViewModel(std::string_view lm);
 // tileRenderer (TVHTML5 surfaces): the authed feeds (history/subscriptions/library)
 // arrive TV-shaped because the OAuth bearer is only honored by the TV client.
-Video parseTileRenderer(std::string_view t);
-std::vector<Video> parseVideoList(std::string_view response, std::string *nextToken);
+VideoItem parseTileRenderer(std::string_view t);
+std::vector<VideoItem> parseVideoList(std::string_view response, std::string *nextToken);
 // createCommentParams (out, nullable): the create-comment box's submit token, scraped
 // best-effort from the comments-section create-comment command (R4 — exact source
 // unverified; left empty when absent). core::postComment reads it to post a comment.
-std::vector<Comment> parseComments(std::string_view response, std::string *nextToken,
+std::vector<CommentThread> parseComments(std::string_view response, std::string *nextToken,
                                  std::string *createCommentParams = 0);
 Playlist parsePlaylistRenderer(std::string_view r);
 std::vector<Playlist> parsePlaylistList(std::string_view response, std::string *nextToken);
@@ -41,8 +41,9 @@ std::vector<Channel> parseUserList(std::string_view response, std::string *nextT
 // the response carries no plain channelId).
 AccountInfo parseAccountsList(std::string_view response);
 // Watch page (/next): the primary video's details (title/description/views/likes +
-// channel name/avatar/id) and the related-videos list, in one response.
-void parseWatchPage(std::string_view response, Video *primary, std::vector<Video> *related);
+// channel name/avatar/id) and the related-videos list, in one response. relatedToken:
+// the related list's continuation (empty when there is none).
+void parseWatchPage(std::string_view response, Video *video, std::string *relatedToken = nullptr);
 // navigation/resolve_url response → endpoint.browseEndpoint.browseId ("" when absent).
 std::string parseResolvedBrowseId(std::string_view response);
 }

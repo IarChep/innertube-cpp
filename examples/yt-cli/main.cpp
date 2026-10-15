@@ -60,11 +60,11 @@ int fail(const yt::Error &e)
     return 1;
 }
 
-int printVideos(const yt::Result<yt::Page<yt::Video>> &r)
+int printVideos(const yt::Result<yt::Page<yt::VideoItem>> &r)
 {
     if (!r.ok()) return fail(*r.error);
-    for (const yt::Video &v : r.value.items)
-        std::printf("%-12s %-8s %s — %s\n", v.id.c_str(), v.duration.c_str(), v.title.c_str(), v.channelName.c_str());
+    for (const yt::VideoItem &v : r.value.items)
+        std::printf("%-12s %-8s %s — %s\n", v.id.c_str(), v.durationText.c_str(), v.title.c_str(), v.channel.name.c_str());
     return 0;
 }
 
@@ -158,7 +158,7 @@ int main(int argc, char **argv)
     }
     if (cmd == "search") {
         const int pages = argc > 3 ? std::atoi(argv[3]) : 1;
-        yt::Result<yt::Page<yt::Video>> page = yt.search().videos(arg).get();
+        yt::Result<yt::Page<yt::VideoItem>> page = yt.search().videos(arg).get();
         for (int i = 1;; ++i) {
             if (const int rc = printVideos(page)) return rc;
             if (i >= pages || !page.value.next) return 0;
@@ -174,15 +174,16 @@ int main(int argc, char **argv)
         const yt::Result<yt::Channel> c = header.get();
         if (!c.ok()) return fail(*c.error);
         std::printf("%s (%s) %s · %s\n", c.value.name.c_str(), c.value.id.c_str(), c.value.handle.c_str(),
-                    c.value.subscriberCount.c_str());
+                    c.value.subscriberText.c_str());
         return printVideos(videos.get());
     }
     if (cmd == "comments") {
-        const yt::Result<yt::Page<yt::Comment>> r = yt.comments().list(arg).get();
+        const yt::Result<yt::Page<yt::CommentThread>> r = yt.comments().list(arg).get();
         if (!r.ok()) return fail(*r.error);
         if (r.value.disabled) { std::printf("comments are turned off\n"); return 0; }
-        for (const yt::Comment &c : r.value.items)
-            std::printf("[%s] %s\n", c.author.c_str(), c.body.substr(0, c.body.find('\n')).c_str());
+        for (const yt::CommentThread &t : r.value.items)
+            std::printf("[%s] %s%s%s\n", t.comment.author.name.c_str(), t.comment.text.substr(0, t.comment.text.find('\n')).c_str(),
+                        t.replyText.empty() ? "" : "  · replies: ", t.replyText.c_str());
         return 0;
     }
     if (cmd == "signin") return signin(yt);

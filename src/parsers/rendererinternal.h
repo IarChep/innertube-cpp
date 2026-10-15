@@ -36,35 +36,37 @@ using gj::digitsOf;
 // ---------------------------------------------------------------------------
 // struct → CT conversions (the only Qt-aware part of the parse).
 // ---------------------------------------------------------------------------
-inline Video fromVideoRenderer(const rj::VideoR &r)
+inline VideoItem fromVideoRenderer(const rj::VideoR &r)
 {
-    Video v;
+    VideoItem v;
     v.id = str(r.videoId);
     v.title = str(textOf(r.title));
     // Presence-based fallback (not value-based): mirrors the old ternary on contains().
-    if (r.ownerText)            v.channelName = str(textOf(*r.ownerText));
-    else if (r.longBylineText)  v.channelName = str(textOf(*r.longBylineText));
-    v.duration = str(textOf(r.lengthText));
+    if (r.ownerText)            v.channel.name = str(textOf(*r.ownerText));
+    else if (r.longBylineText)  v.channel.name = str(textOf(*r.longBylineText));
+    v.durationText = str(textOf(r.lengthText));
     v.thumbnailUrl = str(lastThumbUrl(r.thumbnail));   // native (WebP); decoded by the qwebp plugin
     if (v.thumbnailUrl.empty() && !v.id.empty())
         v.thumbnailUrl = "https://i.ytimg.com/vi/" + v.id + "/hqdefault.jpg";
-    v.largeThumbnailUrl = v.thumbnailUrl;
     // Channel avatar: videoRenderer.channelThumbnailSupportedRenderers
     //   .channelThumbnailWithLinkRenderer.thumbnail.thumbnails[].url
     if (r.channelThumbnailSupportedRenderers
         && r.channelThumbnailSupportedRenderers->channelThumbnailWithLinkRenderer)
-        v.avatarUrl = str(lastThumbUrl(
+        v.channel.avatarUrl = str(lastThumbUrl(
             r.channelThumbnailSupportedRenderers->channelThumbnailWithLinkRenderer->thumbnail));
-    if (r.viewCountText)
-        v.viewCount = digitsOf(str(textOf(*r.viewCountText)));
+    if (r.viewCountText) {                      // the exact count ("1,234 views"), unlike lockups
+        v.viewText = str(textOf(*r.viewCountText));
+        v.viewCount = digitsOf(v.viewText);
+    }
     if (r.publishedTimeText)                    // "2 days ago" — shown on the delegate
-        v.date = str(textOf(*r.publishedTimeText));
+        v.publishedText = str(textOf(*r.publishedTimeText));
+    v.durationSecs = gj::clockSecs(v.durationText);
     return v;
 }
 
-inline Video fromLockupVideo(const rj::Lockup &lm)
+inline VideoItem fromLockupVideo(const rj::Lockup &lm)
 {
-    Video v;
+    VideoItem v;
     v.id = str(lm.contentId);
     // Thumbnail + the duration badge overlay.
     if (lm.contentImage && lm.contentImage->thumbnailViewModel) {
@@ -79,14 +81,13 @@ inline Video fromLockupVideo(const rj::Lockup &lm)
                     if (!b.thumbnailBadgeViewModel) continue;
                     const std::string t = str(b.thumbnailBadgeViewModel->text);
                     // Only the time-shaped badge ("4:56"/"1:02:03") is the duration.
-                    if (v.duration.empty() && gj::isClockText(t))
-                        v.duration = t;
+                    if (v.durationText.empty() && gj::isClockText(t))
+                        v.durationText = t;
                 }
             }
     }
     if (v.thumbnailUrl.empty() && !v.id.empty())
         v.thumbnailUrl = "https://i.ytimg.com/vi/" + v.id + "/hqdefault.jpg";
-    v.largeThumbnailUrl = v.thumbnailUrl;
     if (lm.metadata && lm.metadata->lockupMetadataViewModel) {
         const rj::LockupMetaVM &md = *lm.metadata->lockupMetadataViewModel;
         if (md.title) v.title = str(contentOf(md.title));
@@ -94,11 +95,11 @@ inline Video fromLockupVideo(const rj::Lockup &lm)
         if (md.image && md.image->decoratedAvatarViewModel) {
             const rj::DecoratedAvatar &dav = *md.image->decoratedAvatarViewModel;
             if (dav.avatar && dav.avatar->avatarViewModel)
-                v.avatarUrl = str(lastSourceUrl(dav.avatar->avatarViewModel->image));
+                v.channel.avatarUrl = str(lastSourceUrl(dav.avatar->avatarViewModel->image));
             if (dav.rendererContext && dav.rendererContext->commandContext) {
                 const rj::CmdCtx &cc = *dav.rendererContext->commandContext;
                 if (cc.onTap && cc.onTap->innertubeCommand && cc.onTap->innertubeCommand->browseEndpoint)
-                    v.channelId = str(cc.onTap->innertubeCommand->browseEndpoint->browseId);
+                    v.channel.id = str(cc.onTap->innertubeCommand->browseEndpoint->browseId);
             }
         }
         // metadataRows: row 0 = channel name; a later row = "N views" + "date ago". A
@@ -112,25 +113,26 @@ inline Video fromLockupVideo(const rj::Lockup &lm)
                     for (const rj::MetaPart &p : *row.metadataParts) {
                         const std::string txt = str(contentOf(p.text));
                         if (txt.empty()) continue;
-                        if (v.channelName.empty() && ri == 0 && rows.size() > 1)                     v.channelName = txt;
+                        if (v.channel.name.empty() && ri == 0 && rows.size() > 1)                     v.channel.name = txt;
                         else if (v.viewText.empty() && gj::containsCI(txt, "view")) v.viewText = txt;
-                        else if (v.date.empty() && txt.contains("ago"))                           v.date = txt;
+                        else if (v.publishedText.empty() && txt.contains("ago"))                           v.publishedText = txt;
                     }
                 }
                 ++ri;
             }
         }
     }
+    v.durationSecs = gj::clockSecs(v.durationText);
     return v;
 }
 
 // tileRenderer — the TV UI card. Self-contained leaf (like lockupViewModel); only
-// TILE_CONTENT_TYPE_VIDEO becomes a Video. metadata.tileMetadataRenderer carries
+// TILE_CONTENT_TYPE_VIDEO becomes a VideoItem. metadata.tileMetadataRenderer carries
 // title + lines (line 0 = channel, line 1 = views [+ date]); the duration rides in a
 // thumbnailOverlayTimeStatusRenderer.
-inline Video fromTile(const rj::Tile &t)
+inline VideoItem fromTile(const rj::Tile &t)
 {
-    Video v;
+    VideoItem v;
     v.id = str(t.contentId);
     if (t.metadata && t.metadata->tileMetadataRenderer) {
         const rj::TileMeta &md = *t.metadata->tileMetadataRenderer;
@@ -143,15 +145,15 @@ inline Video fromTile(const rj::Tile &t)
                     if (!item.lineItemRenderer || !item.lineItemRenderer->text) continue;
                     const std::string text = str(textOf(*item.lineItemRenderer->text));
                     if (text.empty()) continue;
-                    if (li == 0 && v.channelName.empty()) v.channelName = text;
+                    if (li == 0 && v.channel.name.empty()) v.channel.name = text;
                     else if (v.viewText.empty() && text.contains("view")) v.viewText = text;
                     // Date lives on a later line; pick the DATED item ("3 days ago" /
                     // "Streamed 2 days ago" / "Sep 5, 2024"), never the "•" separator or
                     // other bullets that sit between the view count and the date.
-                    else if (v.date.empty() && li > 0
+                    else if (v.publishedText.empty() && li > 0
                              && (text.contains("ago")
                                  || gj::hasYear(text)))
-                        v.date = text;
+                        v.publishedText = text;
                 }
             }
         }
@@ -160,24 +162,22 @@ inline Video fromTile(const rj::Tile &t)
         const rj::TileHeader &h = *t.header->tileHeaderRenderer;
         if (h.thumbnail && h.thumbnail->thumbnails && !h.thumbnail->thumbnails->empty()) {
             v.thumbnailUrl = str(lastThumbUrl(*h.thumbnail));   // last = largest
-            v.largeThumbnailUrl = v.thumbnailUrl;
         }
         if (h.thumbnailOverlays)
             for (const rj::TileOverlay &ov : *h.thumbnailOverlays)
                 if (ov.thumbnailOverlayTimeStatusRenderer
                     && ov.thumbnailOverlayTimeStatusRenderer->text)
-                    v.duration = str(textOf(*ov.thumbnailOverlayTimeStatusRenderer->text));
+                    v.durationText = str(textOf(*ov.thumbnailOverlayTimeStatusRenderer->text));
     }
     if (v.thumbnailUrl.empty() && !v.id.empty()) {
         v.thumbnailUrl = "https://i.ytimg.com/vi/" + v.id + "/hqdefault.jpg";
-        v.largeThumbnailUrl = v.thumbnailUrl;
     }
     // Channel id from the long-press "Go to channel" menu (the video tile carries no
     // channel field of its own). Populating userId makes tapping the author/avatar open
     // the channel page. NOTE: the TV home tile has NO avatar, and YouTube avatar URLs
     // are opaque hashes (not constructible from the id) — a proxy (unavatar.io) is
     // rate-limited and fetching each channel is too heavy for a feed, so the home grid
-    // keeps the placeholder squircle. The author avatar still shows on VideoPage (parsed
+    // keeps the placeholder squircle. The author avatar still shows on the watch page (parsed
     // from the /next owner).
     if (t.onLongPressCommand && t.onLongPressCommand->showMenuCommand
         && t.onLongPressCommand->showMenuCommand->menu
@@ -188,11 +188,11 @@ inline Video fromTile(const rj::Tile &t)
                 && mi.menuNavigationItemRenderer->navigationEndpoint->browseEndpoint
                 && mi.menuNavigationItemRenderer->navigationEndpoint->browseEndpoint->browseId) {
                 const std::string bid = str(*mi.menuNavigationItemRenderer->navigationEndpoint->browseEndpoint->browseId);
-                if (bid.starts_with("UC")) { v.channelId = bid; break; }
+                if (bid.starts_with("UC")) { v.channel.id = bid; break; }
             }
         }
     }
-    v.url = "https://www.youtube.com/watch?v=" + v.id;
+    v.durationSecs = gj::clockSecs(v.durationText);
     return v;
 }
 
@@ -215,15 +215,15 @@ inline Channel fromTileChannel(const rj::Tile &t)
                     const std::string text = str(textOf(*item.lineItemRenderer->text));
                     if (text.empty()) continue;
                     if (u.handle.empty() && text.starts_with('@')) u.handle = text;
-                    else if (u.subscriberCount.empty()
-                             && text.contains("subscriber")) u.subscriberCount = text;
+                    else if (u.subscriberText.empty()
+                             && text.contains("subscriber")) u.subscriberText = text;
                 }
             }
     }
     if (t.header && t.header->tileHeaderRenderer && t.header->tileHeaderRenderer->thumbnail) {
         std::string url = str(lastThumbUrl(*t.header->tileHeaderRenderer->thumbnail));
         if (url.starts_with("//")) url.insert(0, "https:");   // protocol-relative
-        u.thumbnailUrl = url;
+        u.avatarUrl = url;
     }
     return u;
 }
@@ -256,7 +256,7 @@ inline Playlist fromTilePlaylist(const rj::Tile &t)
                 if (ov.thumbnailOverlayTimeStatusRenderer
                     && ov.thumbnailOverlayTimeStatusRenderer->text) {
                     const int64_t n = digitsOf(str(textOf(*ov.thumbnailOverlayTimeStatusRenderer->text)));
-                    if (n > 0) p.videoCount = (int) n;
+                    if (n > 0) p.videoCount = n;
                 }
     }
     return p;
@@ -274,14 +274,14 @@ inline Playlist fromPlaylistRenderer(const rj::PlaylistR &r)
         p.thumbnailUrl = str(lastThumbUrl(*r.thumbnail));
     else if (r.thumbnails && !r.thumbnails->empty())
         p.thumbnailUrl = str(lastThumbUrl(r.thumbnails->front()));
-    if (r.shortBylineText)     p.channelName = str(textOf(*r.shortBylineText));
-    else if (r.longBylineText) p.channelName = str(textOf(*r.longBylineText));
+    if (r.shortBylineText)     p.owner.name = str(textOf(*r.shortBylineText));
+    else if (r.longBylineText) p.owner.name = str(textOf(*r.longBylineText));
     std::string vc;
     if (r.videoCount)
         if (const std::string *s = std::get_if<std::string>(&*r.videoCount)) vc = str(*s);
     if (vc.empty() && r.videoCountText)      vc = str(textOf(*r.videoCountText));
     if (vc.empty() && r.videoCountShortText) vc = str(textOf(*r.videoCountShortText));
-    p.videoCount = (int)digitsOf(vc);
+    p.videoCount = digitsOf(vc);
     return p;
 }
 
@@ -307,7 +307,7 @@ inline Playlist fromPlaylistLockup(const rj::Lockup &lm)
                     if (!bb.thumbnailBadgeViewModel) continue;
                     const std::string t = str(bb.thumbnailBadgeViewModel->text);
                     if (p.videoCount == 0 && gj::containsCI(t, "video"))
-                        p.videoCount = (int)digitsOf(t);
+                        p.videoCount = digitsOf(t);
                 }
             }
     }
@@ -322,22 +322,33 @@ inline Channel fromUserRenderer(const rj::UserR &r)
     Channel u;
     u.id = str(r.channelId);
     u.name = str(textOf(r.title));
-    if (r.thumbnail)           u.thumbnailUrl = str(lastThumbUrl(*r.thumbnail));
-    if (r.subscriberCountText) u.subscriberCount = str(textOf(*r.subscriberCountText));
+    if (r.thumbnail)           u.avatarUrl = str(lastThumbUrl(*r.thumbnail));
+    if (r.subscriberCountText) u.subscriberText = str(textOf(*r.subscriberCountText));
     if (r.descriptionSnippet)  u.description = str(textOf(*r.descriptionSnippet));
     return u;
 }
 
-inline Comment fromCommentPayload(const rj::CommentPayload &p)
+inline CommentThread fromCommentPayload(const rj::CommentPayload &p)
 {
-    Comment c;
+    CommentThread t;
+    Comment &c = t.comment;
     if (p.properties) {
-        c.body = str(contentOf(p.properties->content));
-        c.date = str(p.properties->publishedTime);
+        c.id = str(p.properties->commentId);
+        c.text = str(contentOf(p.properties->content));
+        c.publishedText = str(p.properties->publishedTime);
     }
-    if (p.author) c.author = str(p.author->displayName);
-    if (p.avatar) c.thumbnailUrl = str(firstSourceUrl(p.avatar->image));
-    return c;
+    if (p.author) {
+        c.author.id = str(p.author->channelId);
+        c.author.name = str(p.author->displayName);
+        c.author.avatarUrl = str(p.author->avatarThumbnailUrl);
+        c.mine = p.author->isCurrentUser.value_or(false);
+    }
+    if (c.author.avatarUrl.empty() && p.avatar) c.author.avatarUrl = str(firstSourceUrl(p.avatar->image));
+    if (p.toolbar) {
+        c.likeText = str(p.toolbar->likeCountNotliked);
+        t.replyText = str(p.toolbar->replyCount);
+    }
+    return t;
 }
 
 // ---------------------------------------------------------------------------
