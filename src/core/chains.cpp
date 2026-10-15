@@ -7,7 +7,10 @@
 #include "innertube/catalog.h"
 #include "innertube/clientconfig.h"
 #include "innertube/playerjs.h"
-#include "json/ytjson.h"
+#include "json/json3.h"
+#include "json/shapes/account.h"
+#include "json/shapes/oauth.h"
+#include "json/shapes/ryd.h"
 #include "parsers/continuation.h"
 #include "parsers/playerparser.h"
 #include "parsers/rendererparser.h"
@@ -17,30 +20,6 @@
 #include <random>
 
 namespace yt::core {
-
-// OAuth endpoint responses and the RYD body — fixed schemas, unknown keys skipped.
-namespace oj {
-struct DeviceCode {
-    std::optional<std::string> device_code;
-    std::optional<std::string> user_code;
-    std::optional<std::string> verification_url;
-    std::optional<std::string> verification_uri;
-    std::optional<gj::FlexInt> interval;
-    std::optional<gj::FlexInt> expires_in;
-};
-struct Token {
-    std::optional<std::string> access_token;
-    std::optional<std::string> refresh_token;
-    std::optional<std::string> error;
-    std::optional<gj::FlexInt> expires_in;
-};
-struct Ryd { std::optional<gj::FlexInt> likes; std::optional<gj::FlexInt> dislikes; };
-struct QrThumb { std::optional<std::string> url; };
-struct QrImage { std::optional<std::vector<QrThumb>> thumbnails; };
-struct QrCode { std::optional<QrImage> qrCodeImage; };
-struct RapidQr { std::optional<QrCode> qrCodeRenderer; };
-struct Handoff { std::optional<RapidQr> rapidQrRenderer; };
-}
 
 namespace {
 
@@ -582,7 +561,7 @@ void fetchSignInQr(IHttp &http, std::string userCode, const JobToken &job, Callb
     http.post("mdx/handoff", ClientId::TVHTML5, bodies::mdxHandoff(userCode), job, [h, job, done](const Reply &r) {
         Result<std::string> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
-        oj::Handoff hf{};
+        rj::Handoff hf{};
         gj::readJsonDoc(hf, *r.body);
         std::string url;
         if (hf.rapidQrRenderer && hf.rapidQrRenderer->qrCodeRenderer && hf.rapidQrRenderer->qrCodeRenderer->qrCodeImage

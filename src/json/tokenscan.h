@@ -3,7 +3,7 @@
 // Qt-free helpers shared by continuation.cpp and rendererparser.cpp for
 // recognising and extracting continuation tokens in a single structural scan.
 //
-#include "ytjson.h"
+#include "json/shapes/common.h"
 #include <string>
 #include <string_view>
 
@@ -16,14 +16,6 @@ inline bool isTokenKey(std::string_view k)
     return k == "continuationCommand" || k == "nextContinuationData"
         || k == "reloadContinuationData";
 }
-
-// The two shapes the token string hides under (Glaze-reflected against the
-// wrapper object value captured by the scanner — same as continuation.cpp's
-// TokenShapes).
-struct TokenShapes {
-    std::optional<std::string> token;          // continuationCommand
-    std::optional<std::string> continuation;   // next/reloadContinuationData
-};
 
 // Extract the token from one captured wrapper extent and write it into *out
 // only when *out is still empty and the extraction yields a non-empty string —

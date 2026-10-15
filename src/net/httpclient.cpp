@@ -2,7 +2,7 @@
 #include "core/log.h"
 #include "innertube/contextbuilder.h"
 #include "json/jsonscan.h"
-#include "json/ytjson.h"
+#include "json/shapes/common.h"
 #include "net/url.h"
 #include <algorithm>
 #include <atomic>
@@ -12,13 +12,6 @@
 namespace yt::net {
 
 using core::Reply;
-
-namespace detail {
-// Top-level InnerTube error envelope: {"error": {"code":.., "message": ".."}}.
-struct ErrEnvelope {
-    std::optional<std::string> message;
-};
-}
 
 namespace {
 
@@ -131,7 +124,7 @@ void envelope(Reply &out, bool wantVisitor)
         out.code = ErrorCode::Api;
         out.error = "InnerTube error";
         if (es.error.front() == '{') {
-            detail::ErrEnvelope err{};
+            gj::ErrorEnvelope err{};
             gj::readJson(err, es.error);
             if (err.message) out.error = *err.message;
         }

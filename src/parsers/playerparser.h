@@ -1,5 +1,5 @@
 // The /player response parsers: one partial read per answer for the client walk
-// (core/chains.cpp), the storyboard spec and the json3 caption format. Parsers never
+// (core/chains.cpp) and the storyboard spec (json3 captions: json/json3.h). Parsers never
 // fail: malformed input yields absent fields / empty lists.
 #ifndef YT_PLAYERPARSER_H
 #define YT_PLAYERPARSER_H
@@ -26,7 +26,5 @@ PlayerPart parsePlayerResponse(const std::string &body);
 // "<template>|w#h#count#cols#rows#intervalMs#name#sigh|…" → levels; a level whose
 // interval is 0 gets lengthSecs·1000 / count. Malformed levels are skipped.
 std::vector<StoryboardLevel> parseStoryboardSpec(std::string_view spec, int64_t lengthSecs);
-// A timedtext fmt=json3 body → cues. Window events and whitespace-only appends are skipped.
-std::vector<Cue> parseJson3(const std::string &body);
 }
 #endif

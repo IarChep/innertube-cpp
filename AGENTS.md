@@ -53,7 +53,8 @@ src/               the implementation — C++23, private
   core/            request chains over the IHttp seam, JobToken, logging, pct-encoding
   net/             Loop (tasks + timers), HttpClient (transport policy), URL helpers
   innertube/       client identities, context/header builder, POST body builders, player-JS scans (playerjs)
-  json/            Glaze read options + shared shapes, single-pass scanner, token scan
+  json/            Glaze read options, single-pass scanner, token scan, json3 captions
+    shapes/        every JSON shape the library reads, one header per API family (§7)
   parsers/         response → yt:: value types (Glaze partial views + scanner visitors)
 backends/curl/     the default HttpTransport (the only code that includes <curl/curl.h>)
 backends/none/     no-backend build
@@ -172,6 +173,7 @@ void HttpClient::onTimeout(const std::shared_ptr<Exchange> &ex)
   only where the engine provably outlives the loop.
 - Numeric conversions use a C-style cast with a space: `(int) kind`, `(size_t)(e - p)`.
   `nullptr` for pointers in new code.
+- JSON shapes live only in `src/json/shapes/`, never in a parser or chain `.cpp`.
 - Optional JSON fields are `std::optional<…>`; flexible numbers are `gj::FlexInt` →
   `gj::toInt64`; text is `gj::Text` → `gj::textOf`. Read subtrees with `gj::readJson`,
   whole `std::string` bodies with `gj::readJsonDoc`.
@@ -218,6 +220,25 @@ Comment density is moderate and purposeful. Match it.
 named after the JSON keys (partial views; unknown keys skipped); a scanner visitor
 (`what/capture/enter/leave`) when the location is not fixed. Fixture-based test in
 `tst_parsers.cpp` from a real, trimmed payload under `tests/fixtures/`.
+
+Shapes go into the `src/json/shapes/` header of their API family; the namespace says
+which family a shape belongs to. Reuse a `gj` piece before declaring a new one (a
+`{thumbnails:[{url}]}` is `gj::ThumbSet`, a `{runs|simpleText}` is `gj::Text`).
+
+| Header | Namespace | Holds |
+|---|---|---|
+| `common.h` | `gj` | text runs, thumbnails, view-model sources, `{content}`, continuation tokens, the error envelope |
+| `renderers.h` | `rj` | list items (video/lockup/tile/playlist/channel renderers) + shared navigation, image, subscribe pieces |
+| `channel.h` | `rj` | channel headers and metadata |
+| `comments.h` | `rj` | `commentEntityPayload` |
+| `watch.h` | `rj` | `/next` primary info, like/dislike toggles, owner, like-status entity |
+| `account.h` | `rj` | `accounts_list` items, the `mdx/handoff` sign-in QR |
+| `player.h` | `pj` | the `/player` answer |
+| `timedtext.h` | `tj` | json3 captions |
+| `oauth.h`, `ryd.h` | `oj` | services outside InnerTube: Google OAuth, Return YouTube Dislike |
+
+Request bodies are written, not read: their shapes stay beside their builders
+(`innertube/bodies.cpp`, `innertube/contextbuilder.cpp`).
 
 **Transport / backend change**: the policy goes into `net::HttpClient`, never into a
 backend. A new `TransportConfig` hint must be honoured by both curl backends

@@ -271,7 +271,7 @@ out of scope.
 | `innertube/bodies.*` | `player(videoId, PlayerBody{tv, cpn, sts})` (`contentCheckOk`/`racyCheckOk` are already sent); `mdxHandoff(userCode)` |
 | `innertube/catalog.h` | QR preset; base.js / tv page URL patterns |
 | `innertube/playerjs.{h,cpp}` (new) | `playerIdIn(html)`, `signatureTimestampIn(js)`: byte scans (grows with sub-project 4) |
-| `parsers/playerparser.*` | rewritten: one partial Glaze read collects status, details, formats, HLS/DASH/SABR, expiry, captions, storyboard spec, videostats; slate via a bounded scanner visitor; also `parseStoryboardSpec` and the `json3` reader |
+| `parsers/playerparser.*` | rewritten: one partial Glaze read collects status, details, formats, HLS/DASH/SABR, expiry, captions, storyboard spec, videostats; slate via a bounded scanner visitor; also `parseStoryboardSpec` and the `json3` reader (since moved: shapes to `json/shapes/`, json3 to `json/json3.*`) |
 | `src/player.cpp` (new, beside `catalog.cpp`) | `storyboardFrame` |
 | `json/ytjson.h` | `gj::base64Decode` (both alphabets, optional padding): the bottom layer, so the parsers (`xtags`) and the chains (QR data URL) may both use it |
 | `core/chains.*` | `fetchPlayer` rewritten around one `PlayerWalk` state (wanted/covered kinds, collected parts, step, visitor retry, saw-401); `ensurePlayerJs`, `fetchCaptions`, `fetchSignInQr` |

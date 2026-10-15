@@ -1,9 +1,9 @@
-// /player answers → the client walk's view (PlayerPart), storyboard specs and json3
-// captions. A fixed root-level schema: one typed partial read (unknown keys skipped);
-// only the offline slate, whose path differs per client, is found by a bounded scan.
+// /player answers → the client walk's view (PlayerPart) and storyboard specs. A fixed
+// root-level schema (json/shapes/player.h): one typed partial read (unknown keys
+// skipped); only the offline slate, whose path differs per client, is a bounded scan.
 #include "playerparser.h"
-#include "json/ytjson.h"
 #include "json/jsonscan.h"
+#include "json/shapes/player.h"
 #include <charconv>
 #include <climits>
 #include <cstdint>
@@ -13,137 +13,6 @@ namespace yt {
 using namespace gj;
 static const std::string &str(const std::string &s) { return s; }
 static std::string str(const std::optional<std::string> &s) { return s ? str(*s) : std::string(); }
-
-namespace pr {
-
-struct Range {
-    std::optional<FlexInt> start;
-    std::optional<FlexInt> end;
-};
-struct AudioTrackJ {
-    std::optional<std::string> displayName;
-    std::optional<std::string> id;
-    std::optional<bool> audioIsDefault;
-};
-struct FormatJ {
-    std::optional<FlexInt> itag;
-    std::optional<std::string> url;
-    std::optional<std::string> signatureCipher;
-    std::optional<std::string> cipher;
-    std::optional<std::string> mimeType;
-    std::optional<std::string> qualityLabel;
-    std::optional<FlexInt> width;
-    std::optional<FlexInt> height;
-    std::optional<FlexInt> fps;
-    std::optional<FlexInt> bitrate;
-    std::optional<FlexInt> averageBitrate;
-    std::optional<FlexInt> contentLength;
-    std::optional<FlexInt> approxDurationMs;
-    std::optional<FlexInt> lastModified;
-    std::optional<Range> initRange;
-    std::optional<Range> indexRange;
-    std::optional<AudioTrackJ> audioTrack;
-    std::optional<std::string> xtags;
-    std::optional<bool> isDrc;
-};
-struct StreamingJ {
-    std::optional<FlexInt> expiresInSeconds;
-    std::optional<std::vector<FormatJ>> formats;
-    std::optional<std::vector<FormatJ>> adaptiveFormats;
-    std::optional<std::string> hlsManifestUrl;
-    std::optional<std::string> dashManifestUrl;
-    std::optional<std::string> serverAbrStreamingUrl;
-};
-struct UstreamerJ {
-    std::optional<std::string> videoPlaybackUstreamerConfig;
-};
-struct MediaCommonJ {
-    std::optional<UstreamerJ> mediaUstreamerRequestConfig;
-};
-struct PlayerConfigJ {
-    std::optional<MediaCommonJ> mediaCommonConfig;
-};
-struct StatusJ {
-    std::optional<std::string> status;
-    std::optional<std::string> reason;
-    std::optional<FlexInt> desktopLegacyAgeGateReason;
-};
-struct DetailsJ {
-    std::optional<std::string> videoId;
-    std::optional<std::string> title;
-    std::optional<std::string> author;
-    std::optional<std::string> channelId;
-    std::optional<std::string> shortDescription;
-    std::optional<FlexInt> lengthSeconds;
-    std::optional<FlexInt> viewCount;
-    std::optional<bool> isLive;
-    std::optional<bool> isLiveContent;
-    std::optional<bool> isUpcoming;
-    std::optional<ThumbSet> thumbnail;
-};
-struct TrackJ {
-    std::optional<std::string> baseUrl;
-    std::optional<std::string> languageCode;
-    std::optional<Text> name;
-    std::optional<std::string> kind;
-    std::optional<bool> isTranslatable;
-};
-struct TracklistJ {
-    std::optional<std::vector<TrackJ>> captionTracks;
-};
-struct CaptionsJ {
-    std::optional<TracklistJ> playerCaptionsTracklistRenderer;
-};
-struct SpecJ {
-    std::optional<std::string> spec;
-};
-struct StoryboardsJ {
-    std::optional<SpecJ> playerStoryboardSpecRenderer;
-};
-struct UrlJ {
-    std::optional<std::string> baseUrl;
-};
-struct TrackingJ {
-    std::optional<UrlJ> videostatsPlaybackUrl;
-    std::optional<UrlJ> videostatsWatchtimeUrl;
-};
-struct BroadcastJ {
-    std::optional<std::string> startTimestamp;
-};
-struct MicroRendererJ {
-    std::optional<BroadcastJ> liveBroadcastDetails;
-};
-struct MicroformatJ {
-    std::optional<MicroRendererJ> playerMicroformatRenderer;
-};
-struct Root {
-    std::optional<StatusJ> playabilityStatus;
-    std::optional<StreamingJ> streamingData;
-    std::optional<PlayerConfigJ> playerConfig;
-    std::optional<DetailsJ> videoDetails;
-    std::optional<CaptionsJ> captions;
-    std::optional<StoryboardsJ> storyboards;
-    std::optional<TrackingJ> playbackTracking;
-    std::optional<MicroformatJ> microformat;
-};
-struct SlateJ {
-    std::optional<FlexInt> scheduledStartTime;
-    std::optional<Text> mainText;
-    std::optional<Text> subtitleText;
-};
-struct Json3Seg {
-    std::optional<std::string> utf8;
-};
-struct Json3Event {
-    std::optional<FlexInt> tStartMs;
-    std::optional<FlexInt> dDurationMs;
-    std::optional<std::vector<Json3Seg>> segs;
-};
-struct Json3Root {
-    std::optional<std::vector<Json3Event>> events;
-};
-
-} // namespace pr
 
 namespace {
 
@@ -207,7 +76,7 @@ struct SlateFinder {
     void capture(std::string_view, std::string_view v, int) { found = v; }
 };
 
-Format formatOf(const pr::FormatJ &f, bool muxed)
+Format formatOf(const pj::FormatJ &f, bool muxed)
 {
     Format o;
     o.itag = (int) toInt64(f.itag);
@@ -284,11 +153,11 @@ void replaceAll(std::string &s, std::string_view what, std::string_view with)
 
 PlayerPart parsePlayerResponse(const std::string &body)
 {
-    pr::Root root{};
+    pj::Root root{};
     readJsonDoc(root, body);
     PlayerPart p;
     if (root.playabilityStatus) {
-        const pr::StatusJ &st = *root.playabilityStatus;
+        const pj::StatusJ &st = *root.playabilityStatus;
         p.status.status = str(st.status);
         p.status.reason = str(st.reason);
         p.status.kind = kindOf(p.status.status, st.desktopLegacyAgeGateReason.has_value());
@@ -297,7 +166,7 @@ PlayerPart parsePlayerResponse(const std::string &body)
         SlateFinder sf;
         scan::document(body, sf);
         if (!sf.found.empty()) {
-            pr::SlateJ sl{};
+            pj::SlateJ sl{};
             readJson(sl, sf.found);
             p.status.scheduledStartSecs = toInt64(sl.scheduledStartTime);
             const std::string main = textOf(sl.mainText), sub = textOf(sl.subtitleText);
@@ -312,10 +181,10 @@ PlayerPart parsePlayerResponse(const std::string &body)
     p.final = p.status.status == "ERROR" || p.status.kind == Playability::Upcoming
            || p.status.kind == Playability::LiveOffline;
     if (root.streamingData) {
-        const pr::StreamingJ &sd = *root.streamingData;
-        if (sd.formats) for (const pr::FormatJ &f : *sd.formats) p.formats.push_back(formatOf(f, true));
+        const pj::StreamingJ &sd = *root.streamingData;
+        if (sd.formats) for (const pj::FormatJ &f : *sd.formats) p.formats.push_back(formatOf(f, true));
         if (sd.adaptiveFormats)
-            for (const pr::FormatJ &f : *sd.adaptiveFormats) p.formats.push_back(formatOf(f, false));
+            for (const pj::FormatJ &f : *sd.adaptiveFormats) p.formats.push_back(formatOf(f, false));
         p.hlsUrl = str(sd.hlsManifestUrl);
         p.dashUrl = str(sd.dashManifestUrl);
         p.sabrUrl = str(sd.serverAbrStreamingUrl);
@@ -326,7 +195,7 @@ PlayerPart parsePlayerResponse(const std::string &body)
         p.sabrConfig =
             str(root.playerConfig->mediaCommonConfig->mediaUstreamerRequestConfig->videoPlaybackUstreamerConfig);
     if (root.videoDetails) {
-        const pr::DetailsJ &d = *root.videoDetails;
+        const pj::DetailsJ &d = *root.videoDetails;
         p.details.id = str(d.videoId);
         p.details.title = str(d.title);
         p.details.author = str(d.author);
@@ -343,7 +212,7 @@ PlayerPart parsePlayerResponse(const std::string &body)
     }
     if (root.captions && root.captions->playerCaptionsTracklistRenderer
         && root.captions->playerCaptionsTracklistRenderer->captionTracks)
-        for (const pr::TrackJ &t : *root.captions->playerCaptionsTracklistRenderer->captionTracks) {
+        for (const pj::TrackJ &t : *root.captions->playerCaptionsTracklistRenderer->captionTracks) {
             CaptionTrack c;
             c.url = str(t.baseUrl);
             c.language = str(t.languageCode);
@@ -355,7 +224,7 @@ PlayerPart parsePlayerResponse(const std::string &body)
     if (root.storyboards && root.storyboards->playerStoryboardSpecRenderer)
         p.storyboardSpec = str(root.storyboards->playerStoryboardSpecRenderer->spec);
     if (root.playbackTracking) {
-        const pr::TrackingJ &tr = *root.playbackTracking;
+        const pj::TrackingJ &tr = *root.playbackTracking;
         if (tr.videostatsWatchtimeUrl) p.watchtimeUrl = str(tr.videostatsWatchtimeUrl->baseUrl);
         if (tr.videostatsPlaybackUrl) p.playbackUrl = str(tr.videostatsPlaybackUrl->baseUrl);
     }
@@ -398,26 +267,6 @@ std::vector<StoryboardLevel> parseStoryboardSpec(std::string_view spec, int64_t 
         url += f[7];
         l.urlTemplate = std::move(url);
         out.push_back(std::move(l));
-    }
-    return out;
-}
-
-std::vector<Cue> parseJson3(const std::string &body)
-{
-    pr::Json3Root root{};
-    readJsonDoc(root, body);
-    std::vector<Cue> out;
-    if (!root.events) return out;
-    for (const pr::Json3Event &e : *root.events) {
-        if (!e.segs) continue;                        // window/pen definitions
-        std::string text;
-        for (const pr::Json3Seg &s : *e.segs) if (s.utf8) text += *s.utf8;
-        if (text.find_first_not_of(" \n") == std::string::npos) continue;   // ASR line-append
-        Cue c;
-        c.startMs = toInt64(e.tStartMs);
-        c.endMs = c.startMs + toInt64(e.dDurationMs);
-        c.text = std::move(text);
-        out.push_back(std::move(c));
     }
     return out;
 }

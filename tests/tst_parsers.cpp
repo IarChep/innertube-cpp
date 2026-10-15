@@ -4,7 +4,8 @@
 #include <doctest/doctest.h>
 #include "innertube/playerjs.h"
 #include "parsers/continuation.h"
-#include "json/ytjson.h"
+#include "json/json3.h"
+#include "json/shapes/common.h"
 #include "parsers/rendererparser.h"
 #include "parsers/playerparser.h"
 #include "parsers/suggestparser.h"
