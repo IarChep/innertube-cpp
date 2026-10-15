@@ -38,6 +38,7 @@ add_library(innertube STATIC
     src/core/chains.cpp
     src/catalog.cpp
     src/player.cpp
+    src/link.cpp
     src/client.cpp
     src/auth.cpp)
 add_library(innertube::innertube ALIAS innertube)

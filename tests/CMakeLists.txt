@@ -25,6 +25,7 @@ endfunction()
 
 it_test(tst_smoke)
 it_test(tst_types STD17)
+it_test(tst_link STD17)
 it_test(tst_parsers)
 it_test(tst_bodies)
 it_test(tst_context)
