@@ -478,3 +478,16 @@ TEST_CASE("playerJsScans") {
     CHECK(signatureTimestampIn("x.signatureTimestamp=y; z={signatureTimestamp:19999}") == 19999);
     CHECK(signatureTimestampIn("nothing") == 0);
 }
+// Security review: a count past INT_MAX truncated to (int) 0 and the interval fallback
+// divided by it (SIGFPE on the engine thread); huge cells overflowed storyboardFrame's int
+// math and a huge length overflowed lengthSecs·1000. Out-of-range levels are skipped.
+TEST_CASE("storyboardSpecRejectsOutOfRangeNumbers") {
+    CHECK(parseStoryboardSpec("https://x/$L/$N.jpg|48#27#4294967296#10#10#0#d#s", 213).empty());
+    CHECK(parseStoryboardSpec("https://x/$L/$N.jpg|99999999999#27#100#10#10#0#d#s", 213).empty());
+    CHECK(parseStoryboardSpec("https://x/$L/$N.jpg|48#27#100#4294967306#10#0#d#s", 213).empty());
+    CHECK(parseStoryboardSpec("https://x/$L/$N.jpg|48#27#100#70000#10#0#d#s", 213).empty());
+    const std::vector<StoryboardLevel> l =
+        parseStoryboardSpec("https://x/$L/$N.jpg|48#27#100#10#10#0#d#s", INT64_MAX);
+    REQUIRE(l.size() == 1);
+    CHECK(l[0].intervalMs == 0);                      // no fallback from an absurd length
+}

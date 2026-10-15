@@ -12,8 +12,8 @@ StoryboardFrame storyboardFrame(const StoryboardLevel &l, int64_t ms)
     const int64_t sheet = idx / perSheet, cell = idx % perSheet;
     f.width = l.width;
     f.height = l.height;
-    f.x = (int) (cell % l.cols) * l.width;
-    f.y = (int) (cell / l.cols) * l.height;
+    f.x = (int) ((cell % l.cols) * l.width);         // 64-bit: a hand-built level may be huge
+    f.y = (int) ((cell / l.cols) * l.height);
     f.url = l.urlTemplate;
     const size_t at = f.url.find("$M");
     if (at != std::string::npos) f.url.replace(at, 2, std::to_string(sheet));

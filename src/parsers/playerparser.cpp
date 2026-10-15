@@ -5,6 +5,8 @@
 #include "json/ytjson.h"
 #include "json/jsonscan.h"
 #include <charconv>
+#include <climits>
+#include <cstdint>
 #include <string>
 namespace yt {
 
@@ -360,6 +362,9 @@ PlayerPart parsePlayerResponse(const std::string &body)
     return p;
 }
 
+// A storyboard cell side or grid dimension: cols·width stays far inside int.
+constexpr int64_t kMaxCell = 32767;
+
 std::vector<StoryboardLevel> parseStoryboardSpec(std::string_view spec, int64_t lengthSecs)
 {
     std::vector<StoryboardLevel> out;
@@ -372,7 +377,11 @@ std::vector<StoryboardLevel> parseStoryboardSpec(std::string_view spec, int64_t 
         int64_t v[6];
         bool numbers = true;
         for (int k = 0; k < 6; ++k) numbers = numbers && numberOf(f[k], v[k]);
-        if (!numbers || v[2] <= 0 || v[3] <= 0 || v[4] <= 0) continue;
+        // Server-issued numbers: a count past INT_MAX used to truncate to 0 and divide by
+        // it, and huge cells overflowed storyboardFrame's int math. Real levels are tiny.
+        if (!numbers || v[0] < 0 || v[0] > kMaxCell || v[1] < 0 || v[1] > kMaxCell
+            || v[2] <= 0 || v[2] > INT_MAX || v[3] <= 0 || v[3] > kMaxCell || v[4] <= 0 || v[4] > kMaxCell)
+            continue;
         StoryboardLevel l;
         l.width = (int) v[0];
         l.height = (int) v[1];
@@ -380,7 +389,8 @@ std::vector<StoryboardLevel> parseStoryboardSpec(std::string_view spec, int64_t 
         l.cols = (int) v[3];
         l.rows = (int) v[4];
         l.intervalMs = v[5];
-        if (l.intervalMs <= 0 && lengthSecs > 0) l.intervalMs = lengthSecs * 1000 / l.count;
+        if (l.intervalMs <= 0 && lengthSecs > 0 && lengthSecs <= INT64_MAX / 1000)
+            l.intervalMs = lengthSecs * 1000 / l.count;
         std::string url(parts[0]);
         replaceAll(url, "$L", std::to_string(i - 1));
         replaceAll(url, "$N", f[6]);                 // a name like "M$M" keeps $M for the sheet
