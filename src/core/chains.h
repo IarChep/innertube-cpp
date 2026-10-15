@@ -84,7 +84,9 @@ Error badLink(std::string_view link, const char *expected);
 // /user/ link through navigation/resolve_url. Anything else is InvalidArgument.
 void fetchChannelId(IHttp &, std::string link, const JobToken &, Callback<std::string> done);
 // The channel header; signed in, also the viewer's subscribe state (an authed TV browse —
-// the WEB header does not carry it for a bearer session).
+// the WEB header does not carry it for a bearer session). A 401 on that second request
+// fails the call (the Client refreshes the bearer and retries); other failures keep the
+// header with subscribed = false.
 void fetchChannel(IHttp &, std::string link, const JobToken &, Callback<Channel> done);
 // A channel's Videos / Playlists tab (Catalog::kChannel*Tab).
 void fetchChannelVideos(IHttp &, std::string link, const JobToken &, Callback<Page<Video>> done);

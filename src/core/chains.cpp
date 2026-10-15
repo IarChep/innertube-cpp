@@ -530,6 +530,9 @@ void fetchChannel(IHttp &http, std::string link, const JobToken &job, Callback<C
             fetchChannelSubscribed(*h, cid, job, [done, ch](const Result<bool> &s) {
                 Result<Channel> out = ch;
                 if (s.ok()) out.value.subscribed = s.value;
+                // An expired bearer: the 401 lets the Client refresh it and retry the call.
+                // Any other failure keeps the header (subscribed = false).
+                else if (s.error->httpStatus == 401) out.error = s.error;
                 done(out);
             });
         });

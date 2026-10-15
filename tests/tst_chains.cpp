@@ -987,3 +987,25 @@ TEST_CASE("a signed-in page continued after sign-out fails with AuthRequired and
     CHECK(second.r.error->code == ErrorCode::AuthRequired);
     CHECK(t.sent.size() == 1);
 }
+// A 401 on the subscribe-state request used to be swallowed (header delivered, subscribed
+// false), so the expired bearer was never refreshed: the 401 must reach the Client's retry.
+TEST_CASE("signed in, a 401 on the subscribe state fails the channel with 401") {
+    FakeHttp t; t.session().bearer = "tok";
+    t.queue("browse", "{\"header\":{\"c4TabbedHeaderRenderer\":{\"title\":\"Chan\",\"channelId\":\"UCuAXFkgsw1L7xaCfnd5JJOw\"}}}");
+    t.queue("browse", "{\"error\":{}}", 401);
+    Cap<Channel> c;
+    fetchChannel(t, "UCuAXFkgsw1L7xaCfnd5JJOw", newJob(), c.fn());
+    t.flush();
+    REQUIRE_FALSE(c.r.ok());
+    CHECK(c.r.error->httpStatus == 401);
+}
+TEST_CASE("signed in, another subscribe-state failure still delivers the header") {
+    FakeHttp t; t.session().bearer = "tok";
+    t.queue("browse", "{\"header\":{\"c4TabbedHeaderRenderer\":{\"title\":\"Chan\",\"channelId\":\"UCuAXFkgsw1L7xaCfnd5JJOw\"}}}");
+    t.queue("browse", "", 0);                         // network down
+    Cap<Channel> c;
+    fetchChannel(t, "UCuAXFkgsw1L7xaCfnd5JJOw", newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    CHECK(c.r.value.id == "UCuAXFkgsw1L7xaCfnd5JJOw");
+}
