@@ -1,12 +1,14 @@
 // What /player yields: every source YouTube gave, tagged with the client that obtained
-// it — the consumer chooses what to play. Plus the playability verdict, captions,
-// storyboards and the videostats URLs from the same answers. C++17.
+// it — the consumer chooses what to play (choose() answers the common case). Plus the
+// playability verdict, captions, storyboards and the videostats URLs from the same
+// answers, and pure helpers over them (captionFor, cueAt, storyboardFrame). C++17.
 #ifndef YT_PLAYER_H
 #define YT_PLAYER_H
 #include <yt/catalog.h>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 namespace yt {
 
@@ -99,6 +101,44 @@ enum Want : unsigned { WantProgressive = 1, WantAdaptive = 2, WantHls = 4, WantS
 struct PlayerRequest { std::string videoId; unsigned want = WantAll; };
 
 struct Cue { int64_t startMs = 0, endMs = 0; std::string text; };
+
+// ---- choosing what to play (pure; the full Player stays available for anything else) ----
+
+// What the device can play. Codecs are prefixes of Format::codecs ("avc1", "vp09", "vp9",
+// "av01", "mp4a", "opus"), compared case-insensitively; an empty list accepts any, and
+// among videos of the same height the earlier codec in the list wins.
+struct Preference {
+    int maxHeight = 0;                       // the short side, so portrait videos count right; 0 = any
+    std::vector<std::string> videoCodecs, audioCodecs;
+    std::string audioLanguage;               // "ru", "pt-BR": that dub when there is one; empty = default track
+    bool allowSeparate = true;               // the player can join a video-only and an audio-only stream
+    bool allowHls = true;                    // the player can play an HLS manifest
+};
+
+// One way to play the video, from one Source (fetch with its userAgent; re-ask player()
+// before its expiresAtSecs). Exactly one of: video + audio, hls, progressive — or nothing
+// (source == nullptr). The pointers point into the Player passed to choose(): keep it alive.
+struct Choice {
+    const Source *source = nullptr;
+    const Format *progressive = nullptr;     // muxed audio + video
+    const Format *video = nullptr, *audio = nullptr;
+    std::string hls;                         // the source's HLS manifest
+};
+
+// The best playable way within `want`: separate video + audio (highest video, the wanted
+// audio language), else HLS, else a progressive format (the last resort: ANDROID_VR's
+// itag 18 has answered 403). A live stream tries HLS first. Formats without a url (SABR
+// only) or sealed ones are never chosen.
+Choice choose(const Player &player, const Preference &want = Preference());
+
+// The caption track for a language: manual before auto-generated, the exact language
+// ("en-GB") before its base ("en"). nullptr when none matches or `language` is empty.
+const CaptionTrack *captionFor(const Player &player, std::string_view language);
+
+// The cue on screen at `ms` (cues in start order, as Client::captions returns them): the
+// latest one started at or before `ms` whose end (exclusive) is still ahead. nullptr between
+// cues. Binary search: cheap enough for every position tick.
+const Cue *cueAt(const std::vector<Cue> &cues, int64_t ms);
 
 struct StoryboardFrame { std::string url; int x = 0, y = 0, width = 0, height = 0; };
 // Which sheet and which cell show the moment `ms` on `level`. Pure; empty url when the
