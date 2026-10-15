@@ -969,3 +969,21 @@ TEST_CASE("playlist edits add and remove by video id") {
     CHECK_FALSE(has(t.sent[1], "setVideoId"));
     CHECK(t.lastClientFor("browse/edit_playlist") == (int) ClientId::TVHTML5);
 }
+// A page served signed in (TVHTML5) used to be continued after sign-out: the cursor was
+// posted to TV without a bearer instead of failing like page 1 would (spec S4).
+TEST_CASE("a signed-in page continued after sign-out fails with AuthRequired and sends nothing") {
+    FakeHttp t; t.session().bearer = "tok";
+    t.queue("browse", loadFixtureRaw("browse_feed.json"));
+    VideoListSpec spec; spec.browseId = "FEsubscriptions";
+    Cap<Page<Video>> first, second;
+    fetchVideoList(t, spec, newJob(), first.fn());
+    t.flush();
+    REQUIRE(first.r.value.next);
+    t.session().bearer.clear();                       // signed out
+    fetchMore(t, first.r.value.next, newJob(), second.fn());
+    t.flush();
+    REQUIRE(second.calls == 1);
+    REQUIRE_FALSE(second.r.ok());
+    CHECK(second.r.error->code == ErrorCode::AuthRequired);
+    CHECK(t.sent.size() == 1);
+}

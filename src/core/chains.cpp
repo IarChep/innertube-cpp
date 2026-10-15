@@ -108,6 +108,14 @@ void moreOf(IHttp &http, const Cursor<T> &c, const JobToken &job, Callback<Page<
     }
     const std::string endpoint = detail::CursorAccess::endpoint(c);
     const ClientId client = detail::CursorAccess::client(c);
+    // Only a signed-in page is served by TVHTML5 (clientForBrowse); after a sign-out its
+    // next page is AuthRequired, like page 1 would be (spec S4).
+    if (client == ClientId::TVHTML5 && http.session().bearer.empty()) {
+        Result<Page<T>> out;
+        out.error = Error{ErrorCode::AuthRequired, "sign-in required", 0};
+        done(out);
+        return;
+    }
     http.post(endpoint, client, bodies::continuation(detail::CursorAccess::token(c)), job,
               pageOf<T>(std::move(done), endpoint, client, parse));
 }
