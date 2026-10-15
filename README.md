@@ -21,9 +21,11 @@ embedded C++ project.
 - **Watch**: video details, related videos, comments with paging, posting comments.
 - **Streams**: every source YouTube serves without player JavaScript — progressive, adaptive,
   HLS and SABR — each tagged with the client (`VISIONOS` first, then `ANDROID_VR`, signed-in
-  `TVHTML5`, `IOS`) and the User-Agent to fetch it with; you choose what to play. Also a
-  precise playability verdict (bot check, age gate, scheduled start…), multi-language audio
-  tracks, captions as timed cues, storyboards (seek previews) and the videostats URLs.
+  `TVHTML5`, `IOS`) and the User-Agent to fetch it with; you choose what to play, or let
+  `yt::choose()` pick within your codecs, height and audio language. Also a precise
+  playability verdict (bot check, age gate, scheduled start…), multi-language audio tracks,
+  captions as timed cues (`captionFor`, `cueAt`), storyboards (seek previews) and the
+  videostats URLs.
 - **Account**: OAuth 2.0 device-code sign-in ("enter this code on another device", with
   YouTube's own QR image), a revoked token signs the client out, proactive
   token refresh, one retry on HTTP 401, subscribe/unsubscribe, like/dislike, playlist edits,
@@ -92,7 +94,11 @@ int main(int argc, char **argv)
     yt::Client yt;                                       // its own engine thread
     yt::Result<yt::Player> r = yt.videos().player(argv[1]).get();   // any link or id
     if (!r.ok()) { std::printf("error: %s\n", r.error->message.c_str()); return 1; }
-    std::printf("%s: %zu sources\n", r.value.details.title.c_str(), r.value.sources.size());
+    std::printf("%s\n", r.value.details.title.c_str());
+
+    yt::Choice c = yt::choose(r.value);                  // the best way to play it
+    if (c.video) std::printf("video %s\naudio %s\n", c.video->url.c_str(), c.audio->url.c_str());
+    else if (!c.hls.empty()) std::printf("hls %s\n", c.hls.c_str());
 
     auto page = yt.search().videos("rick astley").get();  // every list is a yt::Page
     if (page.ok() && page.value.next) page = yt.more(page.value.next).get();   // the second page

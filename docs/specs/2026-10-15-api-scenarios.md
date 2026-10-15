@@ -4,8 +4,9 @@
 [../plans/2026-10-15-api-groups.md](../plans/2026-10-15-api-groups.md) — see its deviations table.
 Step R1 of [`2026-10-15-api-usability-research.md`](2026-10-15-api-usability-research.md): the
 public API is designed from the code its users write, not the other way round (Cwalina's
-scenario-driven design). R6 (selection helpers) and R7 (`VideoItem`/`Video`, `myRating`, channel
-tabs) are not implemented yet.
+scenario-driven design). R6 (`choose`, `captionFor`, `cueAt`) is implemented: `choose` prefers
+separate streams, then HLS, then progressive (ANDROID_VR's itag 18 answered 403), so S1 prints
+whichever it picked. R7 (`VideoItem`/`Video`, `myRating`, channel tabs) is not implemented yet.
 
 **How to read it.** Each scenario is a user-level task ("play a pasted link", not "call
 /player"). It shows the proposed code, and — where the difference matters — today's code for the
@@ -62,8 +63,9 @@ int main(int argc, char **argv)
     if (!r.ok()) { std::printf("error: %s\n", r.error->message.c_str()); return 1; }
 
     std::printf("%s\n", r.value.details.title.c_str());
-    yt::Choice c = yt::choose(r.value);                             // best that plays anywhere
-    if (c.progressive) std::printf("%s\n", c.progressive->url.c_str());
+    yt::Choice c = yt::choose(r.value);                             // the best way to play it
+    if (c.video) std::printf("%s\n%s\n", c.video->url.c_str(), c.audio->url.c_str());
+    else if (!c.hls.empty()) std::printf("%s\n", c.hls.c_str());
 }
 ```
 
