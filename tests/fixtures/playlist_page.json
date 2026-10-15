@@ -1,0 +1,302 @@
+{
+  "contents": {
+    "twoColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "content": {
+              "sectionListRenderer": {
+                "contents": [
+                  {
+                    "itemSectionRenderer": {
+                      "contents": [
+                        {
+                          "lockupViewModel": {
+                            "contentId": "fOT0BUpITw8",
+                            "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+                            "metadata": {
+                              "lockupMetadataViewModel": {
+                                "title": {
+                                  "content": "BELLAKEO (Video Oficial) - Peso Pluma, Anitta"
+                                },
+                                "metadata": {
+                                  "contentMetadataViewModel": {
+                                    "metadataRows": [
+                                      {
+                                        "metadataParts": [
+                                          {
+                                            "text": {
+                                              "content": "Peso Pluma",
+                                              "commandRuns": [
+                                                {
+                                                  "startIndex": 0,
+                                                  "length": 10,
+                                                  "onTap": {
+                                                    "innertubeCommand": {
+                                                      "clickTrackingParams": "CL8GENTEDBgAIhMIgtzb-NC8lwMVGZ18Bh2mnix_ygEEe2m4zQ==",
+                                                      "commandMetadata": {
+                                                        "webCommandMetadata": {
+                                                          "url": "/channel/UCzrM_068Odho89mTRrrxqbA",
+                                                          "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+                                                          "rootVe": 3611,
+                                                          "apiUrl": "/youtubei/v1/browse"
+                                                        }
+                                                      },
+                                                      "browseEndpoint": {
+                                                        "browseId": "UCzrM_068Odho89mTRrrxqbA",
+                                                        "canonicalBaseUrl": "/channel/UCzrM_068Odho89mTRrrxqbA"
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              ],
+                                              "styleRuns": [
+                                                {
+                                                  "startIndex": 0,
+                                                  "length": 10,
+                                                  "weightLabel": "FONT_WEIGHT_NORMAL"
+                                                },
+                                                {
+                                                  "startIndex": 10,
+                                                  "styleRunExtensions": {
+                                                    "styleRunColorMapExtension": {
+                                                      "colorMap": [
+                                                        {
+                                                          "key": "USER_INTERFACE_THEME_LIGHT",
+                                                          "value": 4284506208
+                                                        },
+                                                        {
+                                                          "key": "USER_INTERFACE_THEME_DARK",
+                                                          "value": 4289374890
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              ],
+                                              "attachmentRuns": [
+                                                {
+                                                  "startIndex": 10,
+                                                  "length": 0,
+                                                  "element": {
+                                                    "type": {
+                                                      "imageType": {
+                                                        "image": {
+                                                          "sources": [
+                                                            {
+                                                              "clientResource": {
+                                                                "imageName": "AUDIO_BADGE"
+                                                              },
+                                                              "width": 14,
+                                                              "height": 14
+                                                            }
+                                                          ]
+                                                        }
+                                                      }
+                                                    },
+                                                    "properties": {
+                                                      "layoutProperties": {
+                                                        "height": {
+                                                          "value": 14,
+                                                          "unit": "DIMENSION_UNIT_POINT"
+                                                        },
+                                                        "width": {
+                                                          "value": 14,
+                                                          "unit": "DIMENSION_UNIT_POINT"
+                                                        },
+                                                        "margin": {
+                                                          "left": {
+                                                            "value": 4,
+                                                            "unit": "DIMENSION_UNIT_POINT"
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  },
+                                                  "alignment": "ALIGNMENT_VERTICAL_CENTER"
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "metadataParts": [
+                                          {
+                                            "text": {
+                                              "content": "768M views"
+                                            }
+                                          },
+                                          {
+                                            "text": {
+                                              "content": "2 years ago"
+                                            },
+                                            "accessibilityLabel": "2 years ago"
+                                          }
+                                        ]
+                                      }
+                                    ],
+                                    "delimiter": " • "
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "continuationItemViewModel": {
+                            "continuationCommand": {
+                              "innertubeCommand": {
+                                "continuationCommand": {
+                                  "token": "PLNEXT"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "metadata": {
+    "playlistMetadataRenderer": {
+      "title": "Popular Music Videos"
+    }
+  },
+  "sidebar": {
+    "playlistSidebarRenderer": {
+      "items": [
+        {
+          "playlistSidebarPrimaryInfoRenderer": {
+            "title": {
+              "runs": [
+                {
+                  "text": "Popular Music Videos",
+                  "navigationEndpoint": {
+                    "clickTrackingParams": "CAEQk-8CIhMIgtzb-NC8lwMVGZ18Bh2mnix_WiRWTFBMRmdxdUxuTDU5YWxDbF8yVFF2T2lENVZnbTFoQ2FHU0maAQMQ-izKAQR7abjN",
+                    "commandMetadata": {
+                      "webCommandMetadata": {
+                        "url": "/watch?v=fOT0BUpITw8&list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI&pp=iAQB8AUB",
+                        "webPageType": "WEB_PAGE_TYPE_WATCH",
+                        "rootVe": 3832
+                      }
+                    },
+                    "watchEndpoint": {
+                      "videoId": "fOT0BUpITw8",
+                      "playlistId": "PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI",
+                      "playerParams": "iAQB8AUB",
+                      "loggingContext": {
+                        "vssLoggingContext": {
+                          "serializedContextData": "GiJQTEZncXVMbkw1OWFsQ2xfMlRRdk9pRDVWZ20xaENhR1NJ"
+                        }
+                      },
+                      "watchEndpointSupportedOnesieConfig": {
+                        "html5PlaybackOnesieConfig": {
+                          "commonConfig": {
+                            "url": "https://rr4---sn-4g5lznls.googlevideo.com/initplayback?source=youtube&oeis=1&c=WEB&oad=3200&ovd=3200&oaad=11000&oavd=11000&ocs=700&oewis=1&oputc=1&msp=1&odepv=1&id=7ce4f4054a484f0f&ip=213.139.11.111&initcwndbps=5629250&mt=1792088021&oweuc="
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "stats": [
+              {
+                "runs": [
+                  {
+                    "text": "182"
+                  },
+                  {
+                    "text": " videos"
+                  }
+                ]
+              },
+              {
+                "simpleText": "1,045,670,652 views"
+              },
+              {
+                "runs": [
+                  {
+                    "text": "Last updated on "
+                  },
+                  {
+                    "text": "Jul 17, 2026"
+                  }
+                ]
+              }
+            ],
+            "description": {
+              "simpleText": "The hits."
+            },
+            "thumbnailRenderer": {
+              "playlistVideoThumbnailRenderer": {
+                "thumbnail": {
+                  "thumbnails": [
+                    {
+                      "url": "https://i.ytimg.com/vi/fOT0BUpITw8/hqdefault.jpg?sqp=-oaymwEXCNACELwBSFryq4qpAwkIARUAAIhCGAE=&rs=AOn4CLDjsUIQ80ddZ3EkanNxx85JVi-MFg",
+                      "width": 336,
+                      "height": 188
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "playlistSidebarSecondaryInfoRenderer": {
+            "videoOwner": {
+              "videoOwnerRenderer": {
+                "title": {
+                  "runs": [
+                    {
+                      "text": "Music",
+                      "navigationEndpoint": {
+                        "clickTrackingParams": "CAQQ4TkiEwiC3Nv40LyXAxUZnXwGHaaeLH_KAQR7abjN",
+                        "commandMetadata": {
+                          "webCommandMetadata": {
+                            "url": "/channel/UC-9-kyTW8ZkZNDHQJ6FgpwQ",
+                            "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+                            "rootVe": 3611,
+                            "apiUrl": "/youtubei/v1/browse"
+                          }
+                        },
+                        "browseEndpoint": {
+                          "browseId": "UC-9-kyTW8ZkZNDHQJ6FgpwQ",
+                          "canonicalBaseUrl": "/channel/UC-9-kyTW8ZkZNDHQJ6FgpwQ"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "thumbnail": {
+                  "thumbnails": [
+                    {
+                      "url": "https://yt3.ggpht.com/M1Hbe-1uiAYWJI8-1ZzV3uf7MwoWcEmKAPbIivbKs3buggZcVLov91trUzy8y-96unrkOcv3oA=s176-c-k-c0x00ffffff-no-rj",
+                      "width": 176,
+                      "height": 176
+                    }
+                  ]
+                },
+                "navigationEndpoint": {
+                  "browseEndpoint": {
+                    "browseId": "UC-9-kyTW8ZkZNDHQJ6FgpwQ"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

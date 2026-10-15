@@ -7,6 +7,7 @@
 //   yt-cli streams <link>          e.g. https://youtu.be/dQw4w9WgXcQ
 //   yt-cli captions <link> [lang]
 //   yt-cli channel <link>          e.g. @NASA
+//   yt-cli playlist <link>         e.g. PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI
 //   yt-cli comments <link>
 //   yt-cli signin                  device-code login; state saved to ./yt-cli-state.json
 #include <yt/yt.h>
@@ -139,7 +140,7 @@ int main(int argc, char **argv)
     const std::string arg = argc > 2 ? argv[2] : "";
     if (cmd.empty() || (cmd != "signin" && arg.empty())) {
         std::fprintf(stderr, "usage: %s feed home|subscriptions|history|<topic id> | search <query> [pages] |\n"
-                             "       streams <link> | captions <link> [lang] | channel <link> | comments <link> | signin\n",
+                             "       streams <link> | captions <link> [lang] | channel <link> | playlist <link> | comments <link> | signin\n",
                      argv[0]);
         return 2;
     }
@@ -176,6 +177,15 @@ int main(int argc, char **argv)
         std::printf("%s (%s) %s · %s\n", c.value.name.c_str(), c.value.id.c_str(), c.value.handle.c_str(),
                     c.value.subscriberText.c_str());
         return printVideos(videos.get());
+    }
+    if (cmd == "playlist") {
+        const yt::Result<yt::Playlist> p = yt.playlists().get(arg).get();
+        if (!p.ok()) return fail(*p.error);
+        std::printf("%s — %s · %lld videos\n", p.value.title.c_str(), p.value.owner.name.c_str(),
+                    (long long) p.value.videoCount);
+        yt::Result<yt::Page<yt::VideoItem>> entries;
+        entries.value = p.value.entries;
+        return printVideos(entries);
     }
     if (cmd == "comments") {
         const yt::Result<yt::Page<yt::CommentThread>> r = yt.comments().list(arg).get();

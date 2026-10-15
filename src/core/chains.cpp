@@ -50,10 +50,10 @@ ClientId clientForBrowse(const std::string &id, const Session &s)
 
 // Spec S4: a private feed asked without a bearer would come back as an empty page (or a
 // sign-in prompt); it fails with AuthRequired before anything is sent.
-template <class T> bool refusedSignedOut(const std::string &id, IHttp &http, const Callback<Page<T>> &done)
+template <class T> bool refusedSignedOut(const std::string &id, IHttp &http, const Callback<T> &done)
 {
     if (!feedRequiresAuth(id) || !http.session().bearer.empty()) return false;
-    Result<Page<T>> out;
+    Result<T> out;
     out.error = Error{ErrorCode::AuthRequired, "sign-in required", 0};
     done(out);
     return true;
@@ -634,6 +634,23 @@ void fetchPlaylists(IHttp &http, std::string resourceId, std::string params, con
     const ClientId cid = clientForBrowse(resourceId, http.session());
     http.post("browse", cid, bodies::browse(resourceId, params), job,
               pageOf<Playlist>(std::move(done), "browse", cid, kParsePlaylists));
+}
+
+void fetchPlaylist(IHttp &http, std::string playlistId, const JobToken &job, Callback<Playlist> done)
+{
+    const std::string browseId = "VL" + playlistId;  // a playlist's page is the browse of VL<id>
+    if (refusedSignedOut(browseId, http, done)) return;
+    const ClientId cid = clientForBrowse(browseId, http.session());
+    http.post("browse", cid, bodies::browse(browseId, ""), job, [playlistId, cid, done](const Reply &r) {
+        Result<Playlist> out;
+        if (!r.ok) { out.error = errorOf(r); done(out); return; }
+        out.value = parsePlaylistPage(*r.body);
+        out.value.id = playlistId;
+        std::string next;
+        out.value.entries.items = parseVideoList(*r.body, &next);
+        out.value.entries.next = detail::CursorAccess::make<VideoItem>("browse", cid, std::move(next));
+        done(out);
+    });
 }
 
 void fetchPlaylistSearch(IHttp &http, std::string query, const JobToken &job, Callback<Page<Playlist>> done)

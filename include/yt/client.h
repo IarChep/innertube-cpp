@@ -134,8 +134,8 @@ private:
 // videos when signed in) or a /playlist?list= URL.
 class Playlists {
 public:
-    Job videos(std::string link, Callback<Page<VideoItem>> done);
-    std::future<Result<Page<VideoItem>>> videos(std::string link);
+    Job get(std::string link, Callback<Playlist> done);          // header + first page of entries
+    std::future<Result<Playlist>> get(std::string link);
     Playlists(const Playlists &) = delete;
     Playlists &operator=(const Playlists &) = delete;
 private:

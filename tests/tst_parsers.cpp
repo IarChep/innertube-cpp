@@ -567,6 +567,16 @@ TEST_CASE("a token nested in innertubeCommand is found") {
     CHECK(v.size() == 1);
     CHECK(token == "NESTED");
 }
+TEST_CASE("a playlist page's header comes from its sidebar") {
+    const Playlist p = parsePlaylistPage(loadFixtureRaw("playlist_page.json"));
+    CHECK(p.title == "Popular Music Videos");
+    CHECK(p.description == "The hits.");
+    CHECK(p.videoCount == 182);
+    CHECK(p.thumbnailUrl.rfind("https://i.ytimg.com/vi/fOT0BUpITw8/", 0) == 0);
+    CHECK(p.owner.id == "UC-9-kyTW8ZkZNDHQJ6FgpwQ");
+    CHECK(p.owner.name == "Music");
+    CHECK_FALSE(p.owner.avatarUrl.empty());
+}
 // Search lockups put the channel, views and date in ONE row; the one-row rule for a
 // channel's own tab ([views, date]) dropped the channel name from every search result.
 TEST_CASE("a search lockup's single row still starts with the channel") {

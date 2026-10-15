@@ -49,6 +49,8 @@ void fetchUserSearch(IHttp &, std::string query, const JobToken &, Callback<Page
 // A channel-list feed (FEchannels — the manage-subscriptions grid).
 void fetchChannelList(IHttp &, std::string browseId, const JobToken &, Callback<Page<Channel>> done);
 void fetchPlaylists(IHttp &, std::string resourceId, std::string params, const JobToken &, Callback<Page<Playlist>> done);
+// A playlist's header and first page of entries (WL / LL need sign-in: AuthRequired).
+void fetchPlaylist(IHttp &, std::string playlistId, const JobToken &, Callback<Playlist> done);
 void fetchPlaylistSearch(IHttp &, std::string query, const JobToken &, Callback<Page<Playlist>> done);
 // The next page of a list. A false cursor (the last page) fails with InvalidArgument and
 // sends nothing.

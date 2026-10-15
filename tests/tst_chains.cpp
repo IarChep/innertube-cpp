@@ -1069,3 +1069,27 @@ TEST_CASE("the related list of a watch page continues through next") {
     CHECK(t.sentClients[1] == (int) ClientId::WEB);
     CHECK(more.r.value.items.size() == 2);
 }
+TEST_CASE("a playlist: its header and first page of entries, continued by more") {
+    FakeHttp t;
+    t.queue("browse", loadFixtureRaw("playlist_page.json"));
+    Cap<Playlist> c;
+    fetchPlaylist(t, "PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI", newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    CHECK(t.sent[0] == "{\"browseId\":\"VLPLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI\"}");
+    CHECK(c.r.value.id == "PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI");
+    CHECK(c.r.value.title == "Popular Music Videos");
+    CHECK(c.r.value.owner.name == "Music");
+    REQUIRE(c.r.value.entries.items.size() == 1);
+    CHECK(c.r.value.entries.items[0].id == "fOT0BUpITw8");
+    CHECK(tokenOf(c.r.value.entries.next) == "PLNEXT");
+}
+TEST_CASE("Watch Later signed out is AuthRequired, without a request") {
+    FakeHttp t;
+    Cap<Playlist> c;
+    fetchPlaylist(t, "WL", newJob(), c.fn());
+    t.flush();
+    REQUIRE_FALSE(c.r.ok());
+    CHECK(c.r.error->code == ErrorCode::AuthRequired);
+    CHECK(t.sent.empty());
+}

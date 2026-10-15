@@ -25,6 +25,9 @@ std::vector<CommentThread> parseComments(std::string_view response, std::string 
                                  std::string *createCommentParams = 0);
 Playlist parsePlaylistRenderer(std::string_view r);
 std::vector<Playlist> parsePlaylistList(std::string_view response, std::string *nextToken);
+// A playlist page (browse of VL<id>): the header — title, description, owner, video count,
+// cover. Its entries are parseVideoList of the same response.
+Playlist parsePlaylistPage(const std::string &response);
 // Channel header (c4TabbedHeaderRenderer / pageHeaderRenderer) → Channel.
 // The response is a whole document; the const std::string & overload reads via
 // the NUL-terminated sentinel path (kInDoc) — production passes *r.body.

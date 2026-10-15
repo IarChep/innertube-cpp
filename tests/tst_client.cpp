@@ -213,7 +213,7 @@ TEST_CASE("every group method reaches its chain") {
     c->channels().get("@NASA", nop);
     c->channels().videos(ch, nop);
     c->channels().playlists(ch, nop);
-    c->playlists().videos(pl, nop);
+    c->playlists().get(pl, nop);
     c->feeds().home(nop);
     c->feeds().topic("UC-9-kyTW8ZkZNDHQJ6FgpwQ", nop);
     c->comments().list(v, nop);
@@ -236,7 +236,7 @@ TEST_CASE("a link of the wrong kind fails with InvalidArgument, never inline") {
     std::vector<yt::ErrorCode> codes;
     auto rec = [&](const auto &r) { codes.push_back(r.ok() ? yt::ErrorCode::Canceled : r.error->code); };
     c->videos().get("https://example.com/watch?v=dQw4w9WgXcQ", rec);
-    c->playlists().videos("not a playlist", rec);
+    c->playlists().get("not a playlist", rec);
     c->account().save("dQw4w9WgXcQ", "dQw4w9WgXcQ", rec);       // a video is not a playlist
     c->channels().videos("https://youtu.be/dQw4w9WgXcQ", rec);
     CHECK(codes.empty());                             // never from inside the call
@@ -254,7 +254,7 @@ TEST_CASE("a feed that needs sign-in fails with AuthRequired when signed out, wi
     auto rec = [&](const auto &r) { codes.push_back(r.ok() ? yt::ErrorCode::Canceled : r.error->code); };
     c->feeds().subscriptions(rec);
     c->feeds().history(rec);
-    c->playlists().videos("WL", rec);
+    c->playlists().get("WL", rec);
     c->account().playlists(rec);
     c->account().subscriptions(rec);
     for (int i = 0; i < 4; ++i) { c->runOnce(0); f->flush(); }
@@ -369,11 +369,11 @@ TEST_CASE("destroying the client releases a pending future as Canceled") {
 }
 TEST_CASE("futures for links, pages and more") {
     auto f = std::make_shared<FakeHttp>();
-    f->queue("browse", loadFixtureRaw("browse_feed.json"));
+    f->queue("browse", loadFixtureRaw("playlist_page.json"));
     f->queue("browse", loadFixtureRaw("browse_feed.json"));
     auto c = mk(f);
     auto bad = c->videos().get("not a link");
-    auto first = c->playlists().videos("PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI");
+    auto first = c->playlists().get("PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI");
     for (int i = 0; i < 8 && !(ready(bad) && ready(first)); ++i) { c->runOnce(0); f->flush(); }
     REQUIRE(ready(bad));
     CHECK(bad.get().error->code == yt::ErrorCode::InvalidArgument);
@@ -381,7 +381,8 @@ TEST_CASE("futures for links, pages and more") {
     const auto page = first.get();
     REQUIRE(page.ok());
     CHECK(f->sent[0] == "{\"browseId\":\"VLPLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI\"}");
-    auto second = c->more(page.value.next);
+    CHECK(page.value.title == "Popular Music Videos");
+    auto second = c->more(page.value.entries.next);
     for (int i = 0; i < 8 && !ready(second); ++i) { c->runOnce(0); f->flush(); }
     REQUIRE(ready(second));
     CHECK(second.get().ok());

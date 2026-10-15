@@ -159,14 +159,12 @@ Job Channels::playlists(std::string link, Callback<Page<Playlist>> done)
 
 // ---- Playlists ----
 
-Job Playlists::videos(std::string link, Callback<Page<VideoItem>> done)
+Job Playlists::get(std::string link, Callback<Playlist> done)
 {
-    return run<Page<VideoItem>>(m_e, [link](core::IHttp &h, const core::JobToken &t, Callback<Page<VideoItem>> d) {
+    return run<Playlist>(m_e, [link](core::IHttp &h, const core::JobToken &t, Callback<Playlist> d) {
         const std::optional<std::string> id = core::playlistIdOf(link);
         if (!id) return fail(d, core::badLink(link, "playlist"));
-        core::VideoListSpec s;
-        s.browseId = "VL" + *id;                     // a playlist's page is the browse of VL<id>
-        core::fetchVideoList(h, s, t, std::move(d));
+        core::fetchPlaylist(h, *id, t, std::move(d));
     }, std::move(done));
 }
 
@@ -306,9 +304,9 @@ std::future<Result<Page<Playlist>>> Channels::playlists(std::string link)
 {
     return detail::futureOf<Page<Playlist>>([&](Callback<Page<Playlist>> cb) { return playlists(std::move(link), std::move(cb)); });
 }
-std::future<Result<Page<VideoItem>>> Playlists::videos(std::string link)
+std::future<Result<Playlist>> Playlists::get(std::string link)
 {
-    return detail::futureOf<Page<VideoItem>>([&](Callback<Page<VideoItem>> cb) { return videos(std::move(link), std::move(cb)); });
+    return detail::futureOf<Playlist>([&](Callback<Playlist> cb) { return get(std::move(link), std::move(cb)); });
 }
 std::future<Result<Page<VideoItem>>> Feeds::home()
 {
