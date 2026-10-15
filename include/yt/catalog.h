@@ -16,7 +16,7 @@ constexpr int kClientIdCount = 7;
 struct ClientInfo { std::string name, version, userAgent; int id = 0; };   // id = X-YouTube-Client-Name
 ClientInfo defaultClientInfo(ClientId id);
 
-struct FeedEntry { std::string label, id; bool requiresAuth = false; };
+struct FeedEntry { std::string label, id; };   // id: hand it to Client::feeds().topic()
 
 std::vector<FeedEntry> topicFeeds();      // anonymous topic feeds known to return video lists
 
