@@ -91,8 +91,12 @@ struct DecoratedAvatar {
 struct ImageW {
     std::optional<DecoratedAvatar> decoratedAvatarViewModel;
 };
+struct MetaText {
+    std::optional<std::string> content;
+    std::optional<std::vector<CmdCtx>> commandRuns;   // a linked run: the channel's browseEndpoint
+};
 struct MetaPart {
-    std::optional<gj::ContentText> text;
+    std::optional<MetaText> text;
 };
 struct MetaRow {
     std::optional<std::vector<MetaPart>> metadataParts;

@@ -567,3 +567,26 @@ TEST_CASE("a token nested in innertubeCommand is found") {
     CHECK(v.size() == 1);
     CHECK(token == "NESTED");
 }
+// Search lockups put the channel, views and date in ONE row; the one-row rule for a
+// channel's own tab ([views, date]) dropped the channel name from every search result.
+TEST_CASE("a search lockup's single row still starts with the channel") {
+    const std::string page =
+        "{\"contents\":[{\"lockupViewModel\":{\"contentId\":\"dQw4w9WgXcQ\",\"contentType\":\"LOCKUP_CONTENT_TYPE_VIDEO\","
+        "\"metadata\":{\"lockupMetadataViewModel\":{\"title\":{\"content\":\"T\"},\"metadata\":{\"contentMetadataViewModel\":{"
+        "\"metadataRows\":[{\"metadataParts\":[{\"text\":{\"content\":\"Rick Astley\",\"commandRuns\":[{\"onTap\":{"
+        "\"innertubeCommand\":{\"browseEndpoint\":{\"browseId\":\"UCuAXFkgsw1L7xaCfnd5JJOw\"}}}}]}},"
+        "{\"text\":{\"content\":\"1.8B views\"}},{\"text\":{\"content\":\"16 years ago\"}}]}]}}}}}},"
+        "{\"lockupViewModel\":{\"contentId\":\"yPYZpwSpKmA\",\"contentType\":\"LOCKUP_CONTENT_TYPE_VIDEO\","
+        "\"metadata\":{\"lockupMetadataViewModel\":{\"title\":{\"content\":\"U\"},\"metadata\":{\"contentMetadataViewModel\":{"
+        "\"metadataRows\":[{\"metadataParts\":[{\"text\":{\"content\":\"Rick Astley\"}},"
+        "{\"text\":{\"content\":\"207M views\"}},{\"text\":{\"content\":\"16 years ago\"}}]}]}}}}}}]}";
+    std::string token;
+    const std::vector<VideoItem> v = parseVideoList(page, &token);
+    REQUIRE(v.size() == 2);
+    CHECK(v[0].channel.name == "Rick Astley");
+    CHECK(v[0].channel.id == "UCuAXFkgsw1L7xaCfnd5JJOw");
+    CHECK(v[0].viewText == "1.8B views");
+    CHECK(v[0].publishedText == "16 years ago");
+    CHECK(v[1].channel.name == "Rick Astley");
+    CHECK(v[1].viewText == "207M views");
+}

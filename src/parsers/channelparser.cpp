@@ -54,7 +54,7 @@ static Channel channelFromRoot(const rj::ChannelRoot &root)
                 if (!row.metadataParts) continue;
                 for (const rj::MetaPart &p : *row.metadataParts) {
                     if (!p.text) continue;
-                    const std::string txt = str(contentOf(p.text));
+                    const std::string txt = p.text ? str(p.text->content) : std::string();
                     if (u.subscriberText.empty()
                         && gj::containsCI(txt, "subscriber"))
                         u.subscriberText = txt;

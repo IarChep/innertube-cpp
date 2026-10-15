@@ -64,6 +64,18 @@ inline VideoItem fromVideoRenderer(const rj::VideoR &r)
     return v;
 }
 
+// The channel a lockup metadata part links to (its commandRuns' browseEndpoint), "" if none.
+inline std::string linkedChannel(const rj::MetaPart &p)
+{
+    if (!p.text || !p.text->commandRuns) return std::string();
+    for (const rj::CmdCtx &run : *p.text->commandRuns)
+        if (run.onTap && run.onTap->innertubeCommand && run.onTap->innertubeCommand->browseEndpoint) {
+            std::string id = str(run.onTap->innertubeCommand->browseEndpoint->browseId);
+            if (id.starts_with("UC")) return id;
+        }
+    return std::string();
+}
+
 inline VideoItem fromLockupVideo(const rj::Lockup &lm)
 {
     VideoItem v;
@@ -102,23 +114,30 @@ inline VideoItem fromLockupVideo(const rj::Lockup &lm)
                     v.channel.id = str(cc.onTap->innertubeCommand->browseEndpoint->browseId);
             }
         }
-        // metadataRows: row 0 = channel name; a later row = "N views" + "date ago". A
-        // channel's own tab sends only the views/date row: one row means no channel name.
+        // metadataRows: [channel] [views, date] (feeds, related) or [channel, views, date]
+        // in one row (search) — but a channel's own tab omits the channel: [views, date].
+        // The first part is the channel when it links to one, or when more parts follow
+        // than views and date.
         if (md.metadata && md.metadata->contentMetadataViewModel
             && md.metadata->contentMetadataViewModel->metadataRows) {
             const std::vector<rj::MetaRow> &rows = *md.metadata->contentMetadataViewModel->metadataRows;
-            int ri = 0;
+            size_t parts = 0;
+            for (const rj::MetaRow &row : rows) if (row.metadataParts) parts += row.metadataParts->size();
+            bool first = true;
             for (const rj::MetaRow &row : rows) {
-                if (row.metadataParts) {
-                    for (const rj::MetaPart &p : *row.metadataParts) {
-                        const std::string txt = str(contentOf(p.text));
-                        if (txt.empty()) continue;
-                        if (v.channel.name.empty() && ri == 0 && rows.size() > 1)                     v.channel.name = txt;
-                        else if (v.viewText.empty() && gj::containsCI(txt, "view")) v.viewText = txt;
-                        else if (v.publishedText.empty() && txt.contains("ago"))                           v.publishedText = txt;
+                if (!row.metadataParts) continue;
+                for (const rj::MetaPart &p : *row.metadataParts) {
+                    const std::string txt = p.text ? str(p.text->content) : std::string();
+                    if (txt.empty()) continue;
+                    const std::string link = linkedChannel(p);
+                    if (first && (!link.empty() || rows.size() > 1 || parts >= 3)) {
+                        v.channel.name = txt;
+                        if (!link.empty()) v.channel.id = link;
                     }
+                    else if (v.viewText.empty() && gj::containsCI(txt, "view")) v.viewText = txt;
+                    else if (v.publishedText.empty() && txt.contains("ago"))    v.publishedText = txt;
+                    first = false;
                 }
-                ++ri;
             }
         }
     }
