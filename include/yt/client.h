@@ -112,7 +112,8 @@ private:
 };
 
 // Channels: `link` is a UC… id or a /channel/, /@handle, /c/ or /user/ URL (handles and
-// legacy URLs cost one resolve request).
+// legacy URLs cost one resolve request). The videos and playlists of a channel's tabs carry
+// that channel's id and name on every page.
 class Channels {
 public:
     Job get(std::string link, Callback<Channel> done);            // signed in: `subscribed` is the viewer's state

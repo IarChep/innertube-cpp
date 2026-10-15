@@ -19,6 +19,7 @@
 #include <chrono>
 #include <memory>
 #include <random>
+#include <type_traits>
 
 namespace yt::core {
 
@@ -83,16 +84,32 @@ std::string sortParam(SearchSort sort)
     return std::string();
 }
 
+// A channel's own tab: its videos and playlists come without a channel row, so they get
+// the channel that was browsed (page 1 learns its name from the channel header).
+template <class T> void claim(std::vector<T> &items, detail::Owner &owner, const std::string &body)
+{
+    if constexpr (std::is_same_v<T, Video> || std::is_same_v<T, Playlist>) {
+        if (owner.id.empty()) return;
+        if (owner.name.empty()) owner.name = parseChannel(body).name;
+        for (T &x : items) {
+            if (x.channelId.empty()) x.channelId = owner.id;
+            if (x.channelName.empty()) x.channelName = owner.name;
+        }
+    }
+}
+
 // One page of a list plus the cursor that continues it on the same endpoint and client.
 template <class T, class Parse>
-HttpFn pageOf(Callback<Page<T>> done, std::string endpoint, ClientId client, Parse parse)
+HttpFn pageOf(Callback<Page<T>> done, std::string endpoint, ClientId client, Parse parse, detail::Owner owner = {})
 {
-    return [done, endpoint, client, parse](const Reply &r) {
+    return [done, endpoint, client, parse, owner](const Reply &r) {
         Result<Page<T>> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
         std::string next;
         out.value.items = parse(*r.body, &next);
-        out.value.next = detail::CursorAccess::make<T>(endpoint, client, std::move(next));
+        detail::Owner o = owner;
+        claim(out.value.items, o, *r.body);
+        out.value.next = detail::CursorAccess::make<T>(endpoint, client, std::move(next), std::move(o));
         done(out);
     };
 }
@@ -117,7 +134,7 @@ void moreOf(IHttp &http, const Cursor<T> &c, const JobToken &job, Callback<Page<
         return;
     }
     http.post(endpoint, client, bodies::continuation(detail::CursorAccess::token(c)), job,
-              pageOf<T>(std::move(done), endpoint, client, parse));
+              pageOf<T>(std::move(done), endpoint, client, parse, detail::CursorAccess::owner(c)));
 }
 
 const auto kParseVideos = [](const std::string &b, std::string *n) { return parseVideoList(b, n); };
@@ -545,10 +562,8 @@ void fetchChannelVideos(IHttp &http, std::string link, const JobToken &job, Call
     fetchChannelId(http, std::move(link), job, [h, job, done](const Result<std::string> &id) {
         if (!id.ok()) { Result<Page<Video>> out; out.error = id.error; done(out); return; }
         if (!live(job)) return;
-        VideoListSpec spec;
-        spec.browseId = id.value;
-        spec.params = Catalog::kChannelVideosTab;
-        fetchVideoList(*h, spec, job, done);
+        h->post("browse", ClientId::WEB, bodies::browse(id.value, Catalog::kChannelVideosTab), job,
+                pageOf<Video>(done, "browse", ClientId::WEB, kParseVideos, detail::Owner{id.value, ""}));
     });
 }
 
@@ -558,7 +573,8 @@ void fetchChannelPlaylists(IHttp &http, std::string link, const JobToken &job, C
     fetchChannelId(http, std::move(link), job, [h, job, done](const Result<std::string> &id) {
         if (!id.ok()) { Result<Page<Playlist>> out; out.error = id.error; done(out); return; }
         if (!live(job)) return;
-        fetchPlaylists(*h, id.value, Catalog::kChannelPlaylistsTab, job, done);
+        h->post("browse", ClientId::WEB, bodies::browse(id.value, Catalog::kChannelPlaylistsTab), job,
+                pageOf<Playlist>(done, "browse", ClientId::WEB, kParsePlaylists, detail::Owner{id.value, ""}));
     });
 }
 

@@ -1009,3 +1009,41 @@ TEST_CASE("signed in, another subscribe-state failure still delivers the header"
     REQUIRE(c.r.ok());
     CHECK(c.r.value.id == "UCuAXFkgsw1L7xaCfnd5JJOw");
 }
+// A channel's own tabs list items without a channel row; they used to arrive with an empty
+// channelId/channelName on every page.
+TEST_CASE("a channel's Videos tab gives its videos the channel, on every page") {
+    FakeHttp t;
+    t.queue("browse", loadFixtureRaw("channel_videos_lockup.json"));
+    t.queue("browse",
+            "{\"onResponseReceivedActions\":[{\"appendContinuationItemsAction\":{\"continuationItems\":["
+            "{\"richItemRenderer\":{\"content\":{\"lockupViewModel\":{\"contentId\":\"ErAqN6gXqZQ\","
+            "\"contentType\":\"LOCKUP_CONTENT_TYPE_VIDEO\",\"metadata\":{\"lockupMetadataViewModel\":{"
+            "\"title\":{\"content\":\"B\"}}}}}}}]}}]}");
+    Cap<Page<Video>> first, second;
+    fetchChannelVideos(t, "UCLA_DiR1FfKNvjuUpBHmylQ", newJob(), first.fn());
+    t.flush();
+    REQUIRE(first.r.ok());
+    REQUIRE(first.r.value.items.size() == 1);
+    CHECK(first.r.value.items[0].channelId == "UCLA_DiR1FfKNvjuUpBHmylQ");
+    CHECK(first.r.value.items[0].channelName == "NASA");
+    REQUIRE(first.r.value.next);
+    fetchMore(t, first.r.value.next, newJob(), second.fn());
+    t.flush();
+    REQUIRE(second.r.ok());
+    REQUIRE(second.r.value.items.size() == 1);
+    CHECK(second.r.value.items[0].id == "ErAqN6gXqZQ");
+    CHECK(second.r.value.items[0].channelId == "UCLA_DiR1FfKNvjuUpBHmylQ");
+    CHECK(second.r.value.items[0].channelName == "NASA");
+}
+TEST_CASE("a channel's Playlists tab gives its playlists the channel") {
+    FakeHttp t;
+    t.queue("browse", "{\"contents\":[{\"playlistRenderer\":{\"playlistId\":\"PL9\",\"title\":{\"simpleText\":\"X\"}}}],"
+                      "\"metadata\":{\"channelMetadataRenderer\":{\"title\":\"NASA\",\"externalId\":\"UCLA_DiR1FfKNvjuUpBHmylQ\"}}}");
+    Cap<Page<Playlist>> c;
+    fetchChannelPlaylists(t, "UCLA_DiR1FfKNvjuUpBHmylQ", newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    REQUIRE(c.r.value.items.size() == 1);
+    CHECK(c.r.value.items[0].channelId == "UCLA_DiR1FfKNvjuUpBHmylQ");
+    CHECK(c.r.value.items[0].channelName == "NASA");
+}

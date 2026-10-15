@@ -33,6 +33,7 @@ private:
     friend struct detail::CursorAccess;
     std::string m_endpoint, m_token;       // the InnerTube request that continues the list
     int m_client = 0;                      // ClientId: the client that served page 1 serves the rest
+    std::string m_ownerId, m_ownerName;    // a channel's own tab: the channel its items belong to
 };
 
 // One page of a list. Every list in the API is a Page; Client::more fetches the next.

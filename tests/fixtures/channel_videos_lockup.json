@@ -46,6 +46,15 @@
                         }
                       }
                     }
+                  },
+                  {
+                    "continuationItemRenderer": {
+                      "continuationEndpoint": {
+                        "continuationCommand": {
+                          "token": "TABNEXT"
+                        }
+                      }
+                    }
                   }
                 ]
               }
@@ -53,6 +62,12 @@
           }
         }
       ]
+    }
+  },
+  "metadata": {
+    "channelMetadataRenderer": {
+      "title": "NASA",
+      "externalId": "UCLA_DiR1FfKNvjuUpBHmylQ"
     }
   }
 }
