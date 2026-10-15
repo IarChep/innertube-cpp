@@ -23,6 +23,29 @@ struct Channel  { std::string id, name, description, thumbnailUrl, subscriberCou
 struct Comment  { std::string id, body, date, channelId, author, thumbnailUrl, videoId; };
 struct Account  { std::string id, name, thumbnailUrl, handle, channelId; };
 
+namespace detail { struct CursorAccess; }
+
+// Where a list continues. Opaque: hand it to Client::more. False on the last page.
+template <class T> class Cursor {
+public:
+    explicit operator bool() const { return !m_token.empty(); }
+private:
+    friend struct detail::CursorAccess;
+    std::string m_endpoint, m_token;       // the InnerTube request that continues the list
+    int m_client = 0;                      // ClientId: the client that served page 1 serves the rest
+};
+
+// One page of a list. Every list in the API is a Page; Client::more fetches the next.
+template <class T> struct Page {
+    std::vector<T> items;
+    Cursor<T> next;                        // false: this was the last page
+    bool disabled = false;                 // comments only: turned off for this video
+};
+
+enum class Rating { None, Like, Dislike };                       // the viewer's rating of a video
+enum class SearchSort { Relevance, UploadDate, Views, TopRated };
+struct SearchOptions { SearchSort sort = SearchSort::Relevance; };
+
 struct VideoPage    { std::vector<Video> items; std::string next; };
 struct PlaylistPage { std::vector<Playlist> items; std::string next; };
 struct ChannelPage  { std::vector<Channel> items; std::string next; };

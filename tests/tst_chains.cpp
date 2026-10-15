@@ -3,6 +3,7 @@
 // Outcome<T> -> yt::Result<T> with error codes).
 #include <doctest/doctest.h>
 #include "core/chains.h"
+#include "core/cursor.h"
 #include "innertube/catalog.h"
 #include "fakehttp.h"
 #include "testutil.h"
@@ -870,4 +871,12 @@ TEST_CASE("sign-in QR: garbage is refused") {
     CHECK_FALSE(b.r.ok());
     CHECK(b.r.value.empty());
     CHECK_FALSE(c.r.ok());
+}
+TEST_CASE("cursorAccessRoundTrip") {
+    const Cursor<Video> c = detail::CursorAccess::make<Video>("browse", ClientId::TVHTML5, "TOK");
+    CHECK(bool(c));
+    CHECK(detail::CursorAccess::endpoint(c) == "browse");
+    CHECK(detail::CursorAccess::client(c) == ClientId::TVHTML5);
+    CHECK(detail::CursorAccess::token(c) == "TOK");
+    CHECK_FALSE(detail::CursorAccess::make<Video>("browse", ClientId::WEB, ""));   // no token = no next page
 }

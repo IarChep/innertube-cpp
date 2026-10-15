@@ -10,9 +10,8 @@ namespace bodies {
 namespace bj {
 
 struct Browse {
-    std::optional<std::string> browseId;
+    std::string browseId;
     std::optional<std::string> params;
-    std::optional<std::string> continuation;
 };
 struct Search {
     std::string query;
@@ -95,16 +94,11 @@ static std::optional<std::string> opt(std::string_view s)
     return std::string(s);
 }
 
-std::string browse(std::string_view browseId, std::string_view params, std::string_view continuation)
+std::string browse(std::string_view browseId, std::string_view params)
 {
     bj::Browse b;
-    if (!continuation.empty()) {
-        b.continuation = std::string(continuation);
-    } else {
-        b.browseId = std::string(browseId);
-        // Tab selector (e.g. a channel's Videos tab) — continuations re-encode it.
-        b.params = opt(params);
-    }
+    b.browseId = std::string(browseId);
+    b.params = opt(params);                          // tab selector, e.g. a channel's Videos tab
     return dump(b);
 }
 
@@ -123,7 +117,7 @@ std::string nextVideo(std::string_view videoId)
     return dump(b);
 }
 
-std::string nextContinuation(std::string_view token)
+std::string continuation(std::string_view token)
 {
     bj::Next b;
     b.continuation = std::string(token);

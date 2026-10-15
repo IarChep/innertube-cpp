@@ -4,9 +4,8 @@
 #include "innertube/bodies.h"
 using namespace yt;
 TEST_CASE("browse") {
-    CHECK(bodies::browse("FEx", "", "") == "{\"browseId\":\"FEx\"}");
-    CHECK(bodies::browse("UCx", "EgZ2aWRlb3M%3D", "") == "{\"browseId\":\"UCx\",\"params\":\"EgZ2aWRlb3M%3D\"}");
-    CHECK(bodies::browse("UCx", "P", "CONT") == "{\"continuation\":\"CONT\"}");
+    CHECK(bodies::browse("FEx", "") == "{\"browseId\":\"FEx\"}");
+    CHECK(bodies::browse("UCx", "EgZ2aWRlb3M%3D") == "{\"browseId\":\"UCx\",\"params\":\"EgZ2aWRlb3M%3D\"}");
 }
 TEST_CASE("search keeps UTF-8 raw") {
     CHECK(bodies::search("кот", "") == "{\"query\":\"кот\"}");
@@ -14,7 +13,7 @@ TEST_CASE("search keeps UTF-8 raw") {
 }
 TEST_CASE("next / player / resolve") {
     CHECK(bodies::nextVideo("vid") == "{\"videoId\":\"vid\"}");
-    CHECK(bodies::nextContinuation("T") == "{\"continuation\":\"T\"}");
+    CHECK(bodies::continuation("T") == "{\"continuation\":\"T\"}");
     CHECK(bodies::player("vid") == "{\"videoId\":\"vid\",\"contentCheckOk\":true,\"racyCheckOk\":true}");
     CHECK(bodies::player("vid", {true, "CPN", 0}) ==
           "{\"videoId\":\"vid\",\"contentCheckOk\":true,\"racyCheckOk\":true,\"cpn\":\"CPN\","
@@ -41,4 +40,9 @@ TEST_CASE("mdx handoff (QR)") {
           "{\"handoffQrParams\":{\"rapidQrParams\":{\"qrPresetStyle\":"
           "\"HANDOFF_QR_LIMITED_PRESET_STYLE_MODERN_BIG_DOTS_INVERT_WITH_YT_LOGO\","
           "\"userCode\":\"ABC-DEF-GHI\",\"rapidQrFeature\":\"RAPID_QR_FEATURE_DEFAULT\"}}}");
+}
+TEST_CASE("continuation body") {
+    CHECK(bodies::continuation("TOK") == "{\"continuation\":\"TOK\"}");
+    CHECK(bodies::browse("UCx", "EgZ2aWRlb3PyBgQKAjoA") == "{\"browseId\":\"UCx\",\"params\":\"EgZ2aWRlb3PyBgQKAjoA\"}");
+    CHECK(bodies::browse("FEwhat_to_watch", "") == "{\"browseId\":\"FEwhat_to_watch\"}");
 }

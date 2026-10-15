@@ -13,7 +13,8 @@ enum class ErrorCode {
     Unavailable,      // channel/account/resolve/streams not available
     Unsupported,      // e.g. streams need signature decipher
     AuthRequired,     // authed call without a session
-    Canceled
+    Canceled,
+    InvalidArgument   // a link or argument the library cannot use (checked before any request)
 };
 struct Error { ErrorCode code = ErrorCode::Transport; std::string message; long httpStatus = 0; };
 template <class T> struct Result {

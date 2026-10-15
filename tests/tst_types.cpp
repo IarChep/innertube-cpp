@@ -53,3 +53,13 @@ TEST_CASE("storyboardFrame") {
     CHECK(f.url.find("/M0.jpg") != std::string::npos);
     CHECK(yt::storyboardFrame(yt::StoryboardLevel{}, 0).url.empty());   // an empty level
 }
+TEST_CASE("Page and Cursor defaults") {
+    yt::Page<yt::Video> p;
+    CHECK(p.items.empty());
+    CHECK_FALSE(p.next);                              // no next page
+    CHECK_FALSE(p.disabled);
+    CHECK(yt::SearchOptions{}.sort == yt::SearchSort::Relevance);
+    yt::Rating r = yt::Rating::None;
+    CHECK(r != yt::Rating::Like);
+    CHECK(yt::ErrorCode::InvalidArgument != yt::ErrorCode::Canceled);
+}

@@ -115,7 +115,7 @@ void fetchVideoList(IHttp &http, const VideoListSpec &spec, const JobToken &job,
         return;
     }
     const ClientId cid = clientForBrowse(spec.browseId, http.session());
-    http.post("browse", cid, bodies::browse(spec.browseId, spec.params, spec.page), job,
+    http.post("browse", cid, spec.page.empty() ? bodies::browse(spec.browseId, spec.params) : bodies::continuation(spec.page), job,
               pageOf<VideoPage>(done, parse));
 }
 
@@ -135,7 +135,7 @@ void fetchWatch(IHttp &http, std::string videoId, const JobToken &job, Callback<
 
 static void fetchCommentsPage(IHttp &http, const std::string &token, const JobToken &job, Callback<CommentPage> done)
 {
-    http.post("next", ClientId::WEB, bodies::nextContinuation(token), job, [done](const Reply &r) {
+    http.post("next", ClientId::WEB, bodies::continuation(token), job, [done](const Reply &r) {
         Result<CommentPage> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
         out.value.items = parseComments(*r.body, &out.value.next, &out.value.createCommentParams);
@@ -427,7 +427,7 @@ void fetchCaptions(IHttp &http, CaptionTrack track, const JobToken &job, Callbac
 
 void fetchChannelById(IHttp &http, std::string channelId, const JobToken &job, Callback<Channel> done)
 {
-    http.post("browse", ClientId::WEB, bodies::browse(channelId, "", ""), job, [done](const Reply &r) {
+    http.post("browse", ClientId::WEB, bodies::browse(channelId, ""), job, [done](const Reply &r) {
         Result<Channel> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
         out.value = parseChannel(*r.body);
@@ -451,7 +451,7 @@ void fetchChannelByUrl(IHttp &http, std::string url, const JobToken &job, Callba
 
 void fetchChannelSubscribed(IHttp &http, std::string channelId, const JobToken &job, Callback<bool> done)
 {
-    http.post("browse", ClientId::TVHTML5, bodies::browse(channelId, "", ""), job, [done](const Reply &r) {
+    http.post("browse", ClientId::TVHTML5, bodies::browse(channelId, ""), job, [done](const Reply &r) {
         Result<bool> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
         out.value = parseChannelSubscribed(*r.body);
@@ -468,7 +468,7 @@ void fetchUserSearch(IHttp &http, std::string query, const JobToken &job, Callba
 void fetchChannelList(IHttp &http, std::string browseId, std::string page, const JobToken &job, Callback<ChannelPage> done)
 {
     const ClientId cid = clientForBrowse(browseId, http.session());
-    http.post("browse", cid, bodies::browse(browseId, "", page), job,
+    http.post("browse", cid, page.empty() ? bodies::browse(browseId, "") : bodies::continuation(page), job,
               pageOf<ChannelPage>(done, [](const std::string &b, std::string *n) { return parseUserList(b, n); }));
 }
 
@@ -477,7 +477,7 @@ void fetchPlaylists(IHttp &http, std::string resourceId, std::string page, std::
 {
     // Signed-in FElibrary (the user's own playlists) is feedRequiresAuth → TVHTML5.
     const ClientId cid = clientForBrowse(resourceId, http.session());
-    http.post("browse", cid, bodies::browse(resourceId, params, page), job,
+    http.post("browse", cid, page.empty() ? bodies::browse(resourceId, params) : bodies::continuation(page), job,
               pageOf<PlaylistPage>(done, [](const std::string &b, std::string *n) { return parsePlaylistList(b, n); }));
 }
 

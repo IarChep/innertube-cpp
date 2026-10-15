@@ -11,11 +11,13 @@
 #include <string>
 namespace yt {
 namespace bodies {
-// {browseId[,params]} on a first page, {continuation} on the rest.
-std::string browse(std::string_view browseId, std::string_view params, std::string_view continuation);
+// {browseId[,params]} — the first page of a browse; later pages are continuation().
+std::string browse(std::string_view browseId, std::string_view params);
 std::string search(std::string_view query, std::string_view params);
 std::string nextVideo(std::string_view videoId);
-std::string nextContinuation(std::string_view token);
+// {continuation} — the next page of any list (browse, search, next): the endpoint and the
+// client of page 1 carry the rest.
+std::string continuation(std::string_view token);
 // tv=true adds playbackContext.contentPlaybackContext (html5Preference, and the
 // signatureTimestamp when known) and the playback nonce: TVHTML5 needs them — without
 // them an authed TV /player answers "UNPLAYABLE: The page needs to be reloaded". The
