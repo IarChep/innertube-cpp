@@ -1,7 +1,6 @@
 # Player sources: every stream YouTube gives, without JavaScript (+ QR sign-in)
 
-**Status:** design — awaiting review. Implementation plan: to be written after approval
-(`docs/plans/2026-10-14-player-sources.md`).
+**Status:** implemented (plan [../plans/2026-10-14-player-sources.md](../plans/2026-10-14-player-sources.md)).
 
 **Goal:** `Client::player()` returns *everything* YouTube serves for a video — progressive,
 adaptive, HLS and SABR endpoints, each tagged with the client that obtained it — together with

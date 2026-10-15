@@ -15,9 +15,13 @@ embedded C++ project.
 - **Browse**: home and topic feeds, channels, playlists, history, subscriptions, Watch Later, Liked.
 - **Search**: videos (relevance, date, views or rating order), channels, playlists, and query suggestions.
 - **Watch**: video details, related videos, comments with paging, posting comments.
-- **Streams**: playable stream URLs from the `ANDROID_VR` (progressive) and `IOS` (HLS) clients,
-  which need no signature decipher, plus caption tracks.
-- **Account**: OAuth 2.0 device-code sign-in ("enter this code on another device"), proactive
+- **Streams**: every source YouTube serves without player JavaScript — progressive, adaptive,
+  HLS and SABR — each tagged with the client (`VISIONOS` first, then `ANDROID_VR`, signed-in
+  `TVHTML5`, `IOS`) and the User-Agent to fetch it with; you choose what to play. Also a
+  precise playability verdict (bot check, age gate, scheduled start…), multi-language audio
+  tracks, captions as timed cues, storyboards (seek previews) and the videostats URLs.
+- **Account**: OAuth 2.0 device-code sign-in ("enter this code on another device", with
+  YouTube's own QR image), a revoked token signs the client out, proactive
   token refresh, one retry on HTTP 401, subscribe/unsubscribe, like/dislike, playlist edits,
   account info.
 - **Votes**: like/dislike counts from [Return YouTube Dislike](https://returnyoutubedislike.com).
@@ -33,8 +37,9 @@ embedded C++ project.
   Client names and versions can be overridden at runtime (`ClientOptions::clients`)
   without a new release of the library.
 - There is no player-JS handling: no signature or `n`-parameter decipher and no PoToken.
-  Streams come only from clients that serve ready-to-use URLs; for videos that only
-  offer ciphered formats, `player()` reports `ErrorCode::Unsupported`.
+  Sources come only from clients that serve ready-to-use URLs; ciphered formats are listed
+  with `Format::sealed` and no URL. Caption machine translation needs a PoToken and is not
+  offered.
 
 ## Building
 
@@ -127,7 +132,7 @@ o.initial = loadState();                                   // hl/gl, visitorData
 o.onStateChanged = [](const yt::SessionState &s) { saveState(s); };
 
 client.auth().signIn(
-    [](const yt::DeviceCode &dc) { show(dc.verificationUrl, dc.userCode); },
+    [](const yt::DeviceCode &dc) { show(dc.verificationUrl, dc.userCode, dc.qrPng); },   // qrPng may be empty
     [](const yt::Result<yt::Done> &r) { /* signed in, or r.error */ });
 ```
 

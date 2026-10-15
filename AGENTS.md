@@ -47,11 +47,12 @@ restore it), and the docs/comments that describe the touched contract are update
 include/yt/        public API — C++17, std types only, no Glaze, no curl, no Qt
 src/               the implementation — C++23, private
   client.cpp       yt::Client facade + Engine (dispatch, delivery, Job)
+  player.cpp       pure helpers of the public player types
   auth.cpp         OAuth device flow + bearer lifecycle (Engine methods)
   engine.h         Engine / JobHandle / Gate — the threading contract lives here
   core/            request chains over the IHttp seam, JobToken, logging, pct-encoding
   net/             Loop (tasks + timers), HttpClient (transport policy), URL helpers
-  innertube/       client identities, context/header builder, POST body builders
+  innertube/       client identities, context/header builder, POST body builders, player-JS scans (playerjs)
   json/            Glaze read options + shared shapes, single-pass scanner, token scan
   parsers/         response → yt:: value types (Glaze partial views + scanner visitors)
 backends/curl/     the default HttpTransport (the only code that includes <curl/curl.h>)
