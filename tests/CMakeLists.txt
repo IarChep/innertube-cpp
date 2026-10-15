@@ -50,3 +50,11 @@ if(INNERTUBE_HTTP_BACKEND STREQUAL "curl")
     it_test(tst_curl_logging)
     target_link_libraries(tst_curl_logging PRIVATE innertube_conformance)
 endif()
+
+# The installed package works for a consumer (find_package and pkg-config).
+if(INNERTUBE_INSTALL)
+    add_test(NAME innertube_install
+             COMMAND ${CMAKE_COMMAND} -DBIN=${PROJECT_BINARY_DIR} -DSRC=${PROJECT_SOURCE_DIR}
+                     -DCXX=${CMAKE_CXX_COMPILER} "-DFLAGS=${CMAKE_CXX_FLAGS}" "-DGEN=${CMAKE_GENERATOR}"
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/install.cmake)
+endif()

@@ -1,0 +1,10 @@
+# find_package(innertube) → innertube::innertube (a static library; its link-only
+# dependencies are found here).
+@PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+if(@INNERTUBE_NEEDS_CURL@ AND NOT TARGET CURL::libcurl)
+    find_dependency(CURL)
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/innertubeTargets.cmake")
+check_required_components(innertube)

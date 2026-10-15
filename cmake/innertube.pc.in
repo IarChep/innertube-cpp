@@ -1,0 +1,10 @@
+prefix=@INNERTUBE_PC_PREFIX@
+libdir=@INNERTUBE_PC_LIBDIR@
+includedir=@INNERTUBE_PC_INCLUDEDIR@
+
+Name: innertube
+Description: C++ client for YouTube's InnerTube API (static library; C++17 headers)
+Version: @PROJECT_VERSION@
+Requires: @INNERTUBE_PC_REQUIRES@
+Libs: -L${libdir} -linnertube -pthread @INNERTUBE_PC_LIBS@
+Cflags: -I${includedir}

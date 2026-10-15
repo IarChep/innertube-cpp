@@ -68,6 +68,7 @@ ctest --test-dir build
 | `INNERTUBE_BUILD_TESTS` | top-level only | the doctest suites |
 | `INNERTUBE_BUILD_EXAMPLES` | top-level only | `yt-cli`, `yt-watch`, `yt-channel`, `yt-suggest` |
 | `INNERTUBE_GLAZE_DIR` | `third_party/glaze` | use another Glaze checkout (a `glaze` target is reused if present) |
+| `INNERTUBE_INSTALL` | top-level only | install rules: headers, `libinnertube.a`, the CMake package and `innertube.pc` |
 
 ## Using it in your project
 
@@ -83,6 +84,22 @@ target_link_libraries(myapp PRIVATE innertube::innertube)
 
 A `git submodule` + `add_subdirectory(innertube-cpp)` setup works the same way. Your
 code only needs C++17, because Glaze and libcurl stay private to the library.
+
+Or install it and find it like any other package:
+
+```sh
+cmake --install build --prefix /opt/innertube
+```
+
+```cmake
+find_package(innertube 0.1 REQUIRED)        # CMAKE_PREFIX_PATH=/opt/innertube
+target_link_libraries(myapp PRIVATE innertube::innertube)
+```
+
+Without CMake (an SDK, a Makefile): `pkg-config --cflags --libs innertube` with
+`PKG_CONFIG_PATH=/opt/innertube/lib/pkgconfig`. The `.pc` file finds its prefix from its own
+location, so the installed tree can be moved, for example into a sysroot. Version 0.x: a minor
+release may break the API, and the package version file only accepts the same minor version.
 
 ```cpp
 #include <yt/yt.h>
