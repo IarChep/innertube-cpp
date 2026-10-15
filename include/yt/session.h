@@ -12,7 +12,7 @@ struct SessionState {
     std::string refreshToken;             // OAuth; empty = signed out
     std::string playerId;                 // YouTube's player build (rotates every few weeks)
     int signatureTimestamp = 0;           // read from that build; spares a 3 MB download per run
-    std::optional<Account> account;       // identity of the signed-in user
+    std::optional<AccountInfo> account;   // identity of the signed-in user
 };
 }
 #endif

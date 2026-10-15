@@ -1,7 +1,7 @@
 // yt-watch — one thread, no event loop of your own: ownThread=false and the caller
 // pumps Client::runOnce(). Three jobs run at once; callbacks arrive in runOnce.
 //
-//   yt-watch <videoId>     e.g. dQw4w9WgXcQ
+//   yt-watch <link>     e.g. dQw4w9WgXcQ or https://youtu.be/dQw4w9WgXcQ
 //
 // Shows: watch (video + related), votes (returnyoutubedislike), comments and their
 // paging (Page::next handed to Client::more).
@@ -11,7 +11,7 @@
 int main(int argc, char **argv)
 {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: %s <videoId>\n", argv[0]);
+        std::fprintf(stderr, "usage: %s <link>\n", argv[0]);
         return 2;
     }
     const std::string id = argv[1];
@@ -23,7 +23,7 @@ int main(int argc, char **argv)
     auto fail = [&](const yt::Error &e) { std::fprintf(stderr, "error: %s\n", e.message.c_str()); rc = 1; };
 
     ++pending;
-    client.watch(id, [&](const yt::Result<yt::WatchResult> &r) {
+    client.videos().get(id, [&](const yt::Result<yt::WatchResult> &r) {
         --pending;
         if (!r.ok()) return fail(*r.error);
         const yt::Video &v = r.value.primary;
@@ -33,7 +33,7 @@ int main(int argc, char **argv)
     });
 
     ++pending;
-    client.votes(id, [&](const yt::Result<yt::Votes> &r) {
+    client.videos().votes(id, [&](const yt::Result<yt::Votes> &r) {
         --pending;
         if (!r.ok()) return fail(*r.error);
         std::printf("votes: %lld up / %lld down\n", (long long) r.value.likes.value_or(-1),
@@ -53,7 +53,7 @@ int main(int argc, char **argv)
         }
     };
     ++pending;
-    client.comments(id, onComments);
+    client.comments().list(id, onComments);
 
     while (pending > 0) client.runOnce(100);
     return rc;

@@ -32,9 +32,9 @@ struct AccountItemCollector {
     }
 };
 
-Account parseAccountsList(std::string_view response)
+AccountInfo parseAccountsList(std::string_view response)
 {
-    Account out;
+    AccountInfo out;
     std::vector<std::string_view> views;
     AccountItemCollector c;
     c.out = &views;

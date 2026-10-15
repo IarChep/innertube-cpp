@@ -39,7 +39,7 @@ std::vector<Channel> parseUserList(std::string_view response, std::string *nextT
 // account/accounts_list (authed) → the active account's identity. The channel id is
 // reconstructed as "UC" + offlineCacheKeyToken.clientCacheKey (the youtubei.js trick —
 // the response carries no plain channelId).
-Account parseAccountsList(std::string_view response);
+AccountInfo parseAccountsList(std::string_view response);
 // Watch page (/next): the primary video's details (title/description/views/likes +
 // channel name/avatar/id) and the related-videos list, in one response.
 void parseWatchPage(std::string_view response, Video *primary, std::vector<Video> *related);

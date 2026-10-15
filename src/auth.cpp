@@ -110,7 +110,7 @@ void Engine::pollToken(const std::shared_ptr<JobHandle> &h, Callback<Done> onDon
             state.refreshToken = g.refreshToken;
             // The real identity comes from Client::account(); this is the placeholder
             // single-account record the refresh token is filed under.
-            Account placeholder;
+            AccountInfo placeholder;
             placeholder.id = "default";
             placeholder.name = "YouTube";
             state.account = placeholder;

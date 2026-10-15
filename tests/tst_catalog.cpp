@@ -2,23 +2,12 @@
 #include <yt/catalog.h>
 #include "innertube/contextbuilder.h"
 using namespace yt;
-TEST_CASE("topic feeds, sections and search types") {
+TEST_CASE("topic feeds") {
     const std::vector<FeedEntry> t = topicFeeds();
     REQUIRE(t.size() == 6);
     CHECK(t[0].id == "FEnews_destination");
     CHECK(t[0].label == "News");
     CHECK(t[5].id == "UCEgdi0XIXXZ-qJOFPf4JSKw");
-    const std::vector<FeedEntry> s = feedSections();
-    REQUIRE(s.size() == 1);
-    CHECK(s[0].id == "FEwhat_to_watch");
-    CHECK_FALSE(s[0].requiresAuth);
-    const std::vector<SearchType> st = searchTypes();
-    REQUIRE(st.size() == 3);
-    CHECK(st[0].kind == "video");
-    REQUIRE(st[0].orders.size() == 4);
-    CHECK(st[0].orders[1].value == "date");
-    CHECK(st[1].kind == "user");
-    CHECK(st[2].kind == "playlist");
 }
 TEST_CASE("default client identities") {
     CHECK(defaultClientInfo(ClientId::IOS).version == "20.49.6");

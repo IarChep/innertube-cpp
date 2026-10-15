@@ -47,6 +47,17 @@ ClientId clientForBrowse(const std::string &id, const Session &s)
     return ClientId::WEB;
 }
 
+// Spec S4: a private feed asked without a bearer would come back as an empty page (or a
+// sign-in prompt); it fails with AuthRequired before anything is sent.
+template <class T> bool refusedSignedOut(const std::string &id, IHttp &http, const Callback<Page<T>> &done)
+{
+    if (!feedRequiresAuth(id) || !http.session().bearer.empty()) return false;
+    Result<Page<T>> out;
+    out.error = Error{ErrorCode::AuthRequired, "sign-in required", 0};
+    done(out);
+    return true;
+}
+
 struct ActionSpec { const char *endpoint; bool channel; };
 ActionSpec actionSpecFor(ActionKind kind)
 {
@@ -448,19 +459,6 @@ void fetchChannelById(IHttp &http, std::string channelId, const JobToken &job, C
     });
 }
 
-void fetchChannelByUrl(IHttp &http, std::string url, const JobToken &job, Callback<Channel> done)
-{
-    IHttp *h = &http;
-    http.post("navigation/resolve_url", ClientId::WEB, bodies::resolveUrl(url), job, [h, job, done](const Reply &r) {
-        Result<Channel> out;
-        if (!r.ok) { out.error = errorOf(r); done(out); return; }
-        const std::string browseId = parseResolvedBrowseId(*r.body);
-        if (browseId.empty()) { out.error = unavailable("could not resolve channel"); done(out); return; }
-        if (!live(job)) return;
-        fetchChannelById(*h, browseId, job, done);
-    });
-}
-
 void fetchChannelSubscribed(IHttp &http, std::string channelId, const JobToken &job, Callback<bool> done)
 {
     http.post("browse", ClientId::TVHTML5, bodies::browse(channelId, ""), job, [done](const Reply &r) {
@@ -571,6 +569,7 @@ void fetchVideoList(IHttp &http, const VideoListSpec &spec, const JobToken &job,
                   pageOf<Video>(std::move(done), "search", ClientId::WEB, kParseVideos));
         return;
     }
+    if (refusedSignedOut(spec.browseId, http, done)) return;
     const ClientId cid = clientForBrowse(spec.browseId, http.session());
     http.post("browse", cid, bodies::browse(spec.browseId, spec.params), job,
               pageOf<Video>(std::move(done), "browse", cid, kParseVideos));
@@ -590,6 +589,7 @@ void fetchUserSearch(IHttp &http, std::string query, const JobToken &job, Callba
 
 void fetchChannelList(IHttp &http, std::string browseId, const JobToken &job, Callback<Page<Channel>> done)
 {
+    if (refusedSignedOut(browseId, http, done)) return;
     const ClientId cid = clientForBrowse(browseId, http.session());
     http.post("browse", cid, bodies::browse(browseId, ""), job, pageOf<Channel>(std::move(done), "browse", cid, kParseUsers));
 }
@@ -598,6 +598,7 @@ void fetchPlaylists(IHttp &http, std::string resourceId, std::string params, con
                     Callback<Page<Playlist>> done)
 {
     // Signed-in FElibrary (the user's own playlists) is feedRequiresAuth → TVHTML5.
+    if (refusedSignedOut(resourceId, http, done)) return;
     const ClientId cid = clientForBrowse(resourceId, http.session());
     http.post("browse", cid, bodies::browse(resourceId, params), job,
               pageOf<Playlist>(std::move(done), "browse", cid, kParsePlaylists));
@@ -626,10 +627,10 @@ void fetchMore(IHttp &http, const Cursor<Comment> &c, const JobToken &job, Callb
     moreOf<Comment>(http, c, job, std::move(done), kParseComments);
 }
 
-void fetchAccount(IHttp &http, const JobToken &job, Callback<Account> done)
+void fetchAccount(IHttp &http, const JobToken &job, Callback<AccountInfo> done)
 {
     http.post("account/accounts_list", ClientId::TVHTML5, bodies::accountsList(), job, [done](const Reply &r) {
-        Result<Account> out;
+        Result<AccountInfo> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
         out.value = parseAccountsList(*r.body);
         if (out.value.name.empty() && out.value.channelId.empty()) out.error = unavailable("account unavailable");

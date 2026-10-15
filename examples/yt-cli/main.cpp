@@ -117,17 +117,17 @@ int main(int argc, char **argv)
     int rc = 0;
 
     if (cmd == "feed") {
-        client.browse({arg, ""}, [&](const yt::Result<yt::Page<yt::Video>> &r) {
+        client.feeds().topic(arg, [&](const yt::Result<yt::Page<yt::Video>> &r) {
             if (r.ok()) printVideos(r.value); else rc = fail(*r.error);
             mq.finish();
         });
     } else if (cmd == "search") {
-        client.search({arg}, [&](const yt::Result<yt::Page<yt::Video>> &r) {
+        client.search().videos(arg, [&](const yt::Result<yt::Page<yt::Video>> &r) {
             if (r.ok()) printVideos(r.value); else rc = fail(*r.error);
             mq.finish();
         });
     } else if (cmd == "streams") {
-        client.player({arg}, [&](const yt::Result<yt::Player> &r) {
+        client.videos().player(arg, [&](const yt::Result<yt::Player> &r) {
             if (!r.ok()) { rc = fail(*r.error); mq.finish(); return; }
             const yt::Player &p = r.value;
             std::printf("%s — %s [%s%s%s]\n", p.details.title.c_str(), p.details.author.c_str(), p.status.status.c_str(),
@@ -148,7 +148,7 @@ int main(int argc, char **argv)
         });
     } else if (cmd == "captions") {
         const std::string lang = argc > 3 ? argv[3] : "";
-        client.player({arg, 0}, [&](const yt::Result<yt::Player> &r) {
+        client.videos().player(arg, 0, [&](const yt::Result<yt::Player> &r) {
             if (!r.ok() || r.value.captions.empty()) {
                 if (r.ok()) std::printf("no captions\n"); else rc = fail(*r.error);
                 mq.finish();
@@ -156,7 +156,7 @@ int main(int argc, char **argv)
             }
             yt::CaptionTrack pick = r.value.captions.front();
             for (const yt::CaptionTrack &c : r.value.captions) if (c.language == lang) { pick = c; break; }
-            client.captions(pick, [&](const yt::Result<std::vector<yt::Cue>> &cues) {
+            client.videos().captions(pick, [&](const yt::Result<std::vector<yt::Cue>> &cues) {
                 if (!cues.ok()) rc = fail(*cues.error);
                 else for (size_t i = 0; i < cues.value.size() && i < 8; ++i)
                     std::printf("%7.2f %s\n", cues.value[i].startMs / 1000.0, cues.value[i].text.c_str());

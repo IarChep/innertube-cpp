@@ -21,7 +21,7 @@ struct Video {
 struct Playlist { std::string id, title, description, thumbnailUrl, date, channelId, channelName; int videoCount = 0; };
 struct Channel  { std::string id, name, description, thumbnailUrl, subscriberCount, bannerUrl, handle, videoCount; bool subscribed = false; };
 struct Comment  { std::string id, body, date, channelId, author, thumbnailUrl, videoId; };
-struct Account  { std::string id, name, thumbnailUrl, handle, channelId; };
+struct AccountInfo { std::string id, name, thumbnailUrl, handle, channelId; };
 
 namespace detail { struct CursorAccess; }
 

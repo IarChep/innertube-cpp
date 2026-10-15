@@ -1,6 +1,6 @@
 // Static catalog data: InnerTube client identities (overridable per Client — YouTube
-// rotates versions and a consumer must not wait for a library release), the anonymous
-// topic feeds and the search types. Labels are English defaults; UIs may relabel. C++17.
+// rotates versions and a consumer must not wait for a library release) and the anonymous
+// topic feeds. Labels are English defaults; UIs may relabel. C++17.
 #ifndef YT_CATALOG_H
 #define YT_CATALOG_H
 #include <string>
@@ -17,12 +17,8 @@ struct ClientInfo { std::string name, version, userAgent; int id = 0; };   // id
 ClientInfo defaultClientInfo(ClientId id);
 
 struct FeedEntry { std::string label, id; bool requiresAuth = false; };
-struct SearchOrder { std::string label, value; };
-struct SearchType { std::string label, kind; std::vector<SearchOrder> orders; };
 
 std::vector<FeedEntry> topicFeeds();      // anonymous topic feeds known to return video lists
-std::vector<FeedEntry> feedSections();    // the Home strip
-std::vector<SearchType> searchTypes();    // Videos / Channels / Playlists with their sort orders
 
 }
 #endif

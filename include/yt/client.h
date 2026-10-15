@@ -1,7 +1,8 @@
 // innertube-cpp client API. C++17.
 //
 // Threading & cancellation contract:
-//  1. Every Client / Auth method may be called from any thread; it only posts work.
+//  1. Every Client, group (videos(), search(), …) and Auth method may be called from
+//     any thread; it only posts work.
 //  2. Network I/O, parsing and request logic run on the engine thread (owned by the
 //     Client unless ClientOptions::ownThread is false).
 //  3. Each callback runs exactly once or never; never if its Job was canceled before
@@ -14,6 +15,7 @@
 #define YT_CLIENT_H
 #include <yt/auth.h>
 #include <yt/catalog.h>
+#include <yt/link.h>
 #include <yt/log.h>
 #include <yt/player.h>
 #include <yt/result.h>
@@ -43,10 +45,6 @@ struct ClientOptions {
     std::map<ClientId, ClientInfo> clients;                      // client version/UA overrides
 };
 
-struct BrowseRequest { std::string browseId, params; };
-struct SearchRequest { std::string query; SearchSort sort = SearchSort::Relevance; };
-enum class Action { Subscribe, Unsubscribe, Like, Dislike, RemoveLike };
-
 namespace detail { struct Engine; struct JobHandle; }
 
 // A started operation. Copyable; an empty Job does nothing.
@@ -62,35 +60,132 @@ private:
     std::shared_ptr<detail::JobHandle> m_h;
 };
 
+// Videos: a watch page, every playable source, captions and dislike counts. `link` is
+// anything that names a video: an 11-character id or a watch / youtu.be / shorts / live /
+// embed URL (yt::Link). Another kind of link fails with ErrorCode::InvalidArgument.
+class Videos {
+public:
+    Job get(std::string link, Callback<WatchResult> done);               // details + related
+    Job player(std::string link, Callback<Player> done);                 // every source (yt/player.h)
+    Job player(std::string link, unsigned want, Callback<Player> done);  // want: Want* flags; 0 = metadata only
+    Job captions(CaptionTrack track, Callback<std::vector<Cue>> done);   // a track from Player::captions
+    Job votes(std::string link, Callback<Votes> done);                   // Return YouTube Dislike counts
+    Videos(const Videos &) = delete;
+    Videos &operator=(const Videos &) = delete;
+private:
+    friend class Client;
+    explicit Videos(detail::Engine *e) : m_e(e) {}
+    detail::Engine *m_e;
+};
+
+// Search: videos (sortable), channels and playlists, all paged; typing suggestions.
+class Search {
+public:
+    Job videos(std::string query, Callback<Page<Video>> done);
+    Job videos(std::string query, SearchOptions options, Callback<Page<Video>> done);
+    Job channels(std::string query, Callback<Page<Channel>> done);
+    Job playlists(std::string query, Callback<Page<Playlist>> done);
+    Job suggestions(std::string prefix, Callback<std::vector<std::string>> done);
+    Search(const Search &) = delete;
+    Search &operator=(const Search &) = delete;
+private:
+    friend class Client;
+    explicit Search(detail::Engine *e) : m_e(e) {}
+    detail::Engine *m_e;
+};
+
+// Channels: `link` is a UC… id or a /channel/, /@handle, /c/ or /user/ URL (handles and
+// legacy URLs cost one resolve request).
+class Channels {
+public:
+    Job get(std::string link, Callback<Channel> done);            // signed in: `subscribed` is the viewer's state
+    Job videos(std::string link, Callback<Page<Video>> done);     // the Videos tab
+    Job playlists(std::string link, Callback<Page<Playlist>> done);
+    Channels(const Channels &) = delete;
+    Channels &operator=(const Channels &) = delete;
+private:
+    friend class Client;
+    explicit Channels(detail::Engine *e) : m_e(e) {}
+    detail::Engine *m_e;
+};
+
+// Playlists: `link` is a playlist id (PL…, RD…, UU…, OL…; "WL" Watch Later and "LL" Liked
+// videos when signed in) or a /playlist?list= URL.
+class Playlists {
+public:
+    Job videos(std::string link, Callback<Page<Video>> done);
+    Playlists(const Playlists &) = delete;
+    Playlists &operator=(const Playlists &) = delete;
+private:
+    friend class Client;
+    explicit Playlists(detail::Engine *e) : m_e(e) {}
+    detail::Engine *m_e;
+};
+
+// Feeds. home() is personal when signed in; subscriptions() and history() need sign-in.
+class Feeds {
+public:
+    Job home(Callback<Page<Video>> done);
+    Job subscriptions(Callback<Page<Video>> done);
+    Job history(Callback<Page<Video>> done);
+    Job topic(std::string id, Callback<Page<Video>> done);        // an id from yt::topicFeeds()
+    Feeds(const Feeds &) = delete;
+    Feeds &operator=(const Feeds &) = delete;
+private:
+    friend class Client;
+    explicit Feeds(detail::Engine *e) : m_e(e) {}
+    detail::Engine *m_e;
+};
+
+// Comments of a video (`link` as in Videos). Page::disabled = turned off for the video.
+class Comments {
+public:
+    Job list(std::string link, Callback<Page<Comment>> done);
+    Job post(std::string link, std::string text, Callback<Done> done);   // needs sign-in
+    Comments(const Comments &) = delete;
+    Comments &operator=(const Comments &) = delete;
+private:
+    friend class Client;
+    explicit Comments(detail::Engine *e) : m_e(e) {}
+    detail::Engine *m_e;
+};
+
+// The signed-in user: who they are, their ratings, subscriptions and playlists. Every call
+// needs sign-in (Client::auth()).
+class Account {
+public:
+    Job info(Callback<AccountInfo> done);
+    Job rate(std::string videoLink, Rating rating, Callback<Done> done);   // Rating::None removes a like/dislike
+    Job subscribe(std::string channelLink, Callback<Done> done);
+    Job unsubscribe(std::string channelLink, Callback<Done> done);
+    Job save(std::string videoLink, std::string playlistLink, Callback<Done> done);    // "WL" = Watch Later
+    Job unsave(std::string videoLink, std::string playlistLink, Callback<Done> done);
+    Job playlists(Callback<Page<Playlist>> done);                 // the user's own playlists
+    Job subscriptions(Callback<Page<Channel>> done);              // the channels the user follows
+    Account(const Account &) = delete;
+    Account &operator=(const Account &) = delete;
+private:
+    friend class Client;
+    explicit Account(detail::Engine *e) : m_e(e) {}
+    detail::Engine *m_e;
+};
+
 class Client {
 public:
-    explicit Client(ClientOptions options);   // throws std::invalid_argument without a transport
+    explicit Client(ClientOptions options = {});   // throws std::invalid_argument without a transport
     ~Client();
     Client(const Client &) = delete;
     Client &operator=(const Client &) = delete;
 
-    Job browse(BrowseRequest request, Callback<Page<Video>> done);
-    Job search(SearchRequest request, Callback<Page<Video>> done);
-    Job watch(std::string videoId, Callback<WatchResult> done);
-    Job comments(std::string videoId, Callback<Page<Comment>> done);
-    // Every source YouTube serves for the video (see yt/player.h); request.want limits the
-    // walk to the kinds the consumer can play.
-    Job player(PlayerRequest request, Callback<Player> done);
-    // One caption track (from Player::captions) as timed cues.
-    Job captions(CaptionTrack track, Callback<std::vector<Cue>> done);
-    Job channel(std::string channelId, Callback<Channel> done);
-    Job channelByUrl(std::string url, Callback<Channel> done);
-    Job channelSubscribed(std::string channelId, Callback<bool> done);
-    Job channelList(std::string browseId, Callback<Page<Channel>> done);
-    Job searchChannels(std::string query, Callback<Page<Channel>> done);
-    Job playlists(std::string resourceId, std::string params, Callback<Page<Playlist>> done);
-    Job searchPlaylists(std::string query, Callback<Page<Playlist>> done);
-    Job account(Callback<Account> done);
-    Job action(Action action, std::string targetId, Callback<Done> done);
-    Job postComment(std::string videoId, std::string text, Callback<Done> done);
-    Job editPlaylist(std::string playlistId, bool add, std::string id, Callback<Done> done);
-    Job votes(std::string videoId, Callback<Votes> done);                    // returnyoutubedislike
-    Job suggestions(std::string query, Callback<std::vector<std::string>> done);
+    Videos &videos() { return m_videos; }
+    Search &search() { return m_search; }
+    Channels &channels() { return m_channels; }
+    Playlists &playlists() { return m_playlists; }
+    Feeds &feeds() { return m_feeds; }
+    Comments &comments() { return m_comments; }
+    Account &account() { return m_account; }
+    Auth &auth() { return *m_auth; }
+
     // The next page of any list (Page::next). The last page's cursor fails with
     // ErrorCode::InvalidArgument and sends nothing.
     Job more(const Cursor<Video> &next, Callback<Page<Video>> done);
@@ -98,7 +193,6 @@ public:
     Job more(const Cursor<Playlist> &next, Callback<Page<Playlist>> done);
     Job more(const Cursor<Comment> &next, Callback<Page<Comment>> done);
 
-    Auth &auth() { return *m_auth; }
     void setLocale(std::string hl, std::string gl);   // empty keeps the current value; clears caches
     void runOnce(int maxWaitMs);                       // only when ownThread == false
 
@@ -107,6 +201,13 @@ private:
     explicit Client(std::shared_ptr<detail::Engine> engine);
     std::shared_ptr<detail::Engine> m_engine;
     std::unique_ptr<Auth> m_auth;
+    Videos m_videos;
+    Search m_search;
+    Channels m_channels;
+    Playlists m_playlists;
+    Feeds m_feeds;
+    Comments m_comments;
+    Account m_account;
 };
 
 }

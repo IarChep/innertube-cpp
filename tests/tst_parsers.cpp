@@ -232,7 +232,7 @@ TEST_CASE("parsesPlaylistLockups") {
 TEST_CASE("parsesAccountsList") {
     const std::string j = loadFixtureRaw("accounts_list.json");
     REQUIRE(!j.empty());
-    const Account a = parseAccountsList(j);
+    const AccountInfo a = parseAccountsList(j);
     CHECK(a.name == "Ivan Petrov");
     CHECK(a.handle == "@ivanpetrov");
     CHECK(a.thumbnailUrl == "https://yt3.example/big.jpg");
@@ -267,7 +267,7 @@ TEST_CASE("accountsListNestedItemsDepthBounded") {
     for (int i = 0; i < n; ++i) deep += "{\"accountItem\":";
     deep += "{}";
     for (int i = 0; i < n; ++i) deep += "}";
-    const Account a = parseAccountsList(deep);   // must return, not overflow the stack
+    const AccountInfo a = parseAccountsList(deep);   // must return, not overflow the stack
     CHECK(a.name.empty());
 }
 

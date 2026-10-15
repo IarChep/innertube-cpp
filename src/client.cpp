@@ -8,43 +8,6 @@
 namespace yt {
 namespace detail {
 
-namespace {
-template <class T> long httpStatusOf(const Result<T> &r) { return r.error ? r.error->httpStatus : 0; }
-
-template <class Arg>
-using ChainOf = std::function<void(core::IHttp &, const core::JobToken &, std::function<void(const Arg &)>)>;
-
-// One attempt of a chain. A signed-in 401 forces a bearer refresh and re-runs the
-// chain exactly once (retried=true); every other result is delivered. The refresh is
-// forced only while the bearer the attempt went out with is still installed: 401s of
-// calls that raced an already-finished refresh just retry with the new one. Plain recursion
-// through captures — no self-referencing closure that would leak when a canceled
-// chain never calls back. `gen` is the authGen the call started under.
-template <class Arg>
-void runAttempt(Engine *e, std::shared_ptr<JobHandle> h, ChainOf<Arg> chain,
-                std::function<void(const Arg &)> cb, bool retried, uint64_t gen)
-{
-    if (!core::live(h->token) || !e->http) return;
-    // The refresh this attempt waited for found the refresh token revoked (invalid_grant):
-    // fail it rather than run it signed out. Calls started after the revocation run as usual.
-    if (e->revokedGen > gen) {
-        Arg out;
-        out.error = Error{ErrorCode::AuthRequired, "session revoked", 0};
-        e->deliver(h, [cb, out]() { cb(out); });
-        return;
-    }
-    const uint64_t sentWith = e->bearerGen;
-    chain(*e->http, h->token, [e, h, chain, cb, retried, sentWith, gen](const Arg &r) {
-        if (!retried && httpStatusOf(r) == 401 && e->signedIn() && core::live(h->token)) {
-            if (e->bearerGen == sentWith) e->bearerExpiry = Engine::Clock::time_point{};
-            e->ensureBearer([e, h, chain, cb, gen]() { runAttempt<Arg>(e, h, chain, cb, true, gen); });
-            return;
-        }
-        e->deliver(h, [cb, r]() { cb(r); });
-    });
-}
-}
-
 std::shared_ptr<Engine> Engine::boot(std::shared_ptr<Engine> e)
 {
     if (!e->opts.ownThread) {
@@ -143,22 +106,18 @@ void Engine::notifyState()
     else task();
 }
 
-template <class Arg>
-Job Engine::start(std::function<void(core::IHttp &, const core::JobToken &, std::function<void(const Arg &)>)> chain,
-                  std::function<void(const Arg &)> cb)
-{
-    std::shared_ptr<JobHandle> h = newHandle();
-    Engine *e = this;
-    loop.post([e, h, chain, cb]() {
-        const uint64_t gen = e->authGen;
-        e->ensureBearer([e, h, chain, cb, gen]() { runAttempt<Arg>(e, h, chain, cb, false, gen); });
-    });
-    return makeJob(h);
-}
-
 } // namespace detail
 
 using detail::Engine;
+
+namespace {
+std::shared_ptr<Engine> engineFor(ClientOptions options)
+{
+    auto e = std::make_shared<Engine>();
+    e->opts = std::move(options);
+    return Engine::boot(std::move(e));
+}
+}
 
 void Job::cancel()
 {
@@ -176,15 +135,14 @@ bool Job::active() const
     return m_h && core::live(m_h->token) && !m_h->finished && !(m_h->gate && m_h->gate->closed);
 }
 
-Client::Client(ClientOptions options)
-{
-    auto e = std::make_shared<Engine>();
-    e->opts = std::move(options);
-    m_engine = Engine::boot(std::move(e));
-    m_auth.reset(new Auth(m_engine.get()));
-}
+Client::Client(ClientOptions options) : Client(engineFor(std::move(options))) {}
 
-Client::Client(std::shared_ptr<detail::Engine> engine) : m_engine(std::move(engine)), m_auth(new Auth(m_engine.get())) {}
+Client::Client(std::shared_ptr<detail::Engine> engine)
+    : m_engine(std::move(engine)), m_auth(new Auth(m_engine.get())), m_videos(m_engine.get()),
+      m_search(m_engine.get()), m_channels(m_engine.get()), m_playlists(m_engine.get()),
+      m_feeds(m_engine.get()), m_comments(m_engine.get()), m_account(m_engine.get())
+{
+}
 
 Client::~Client()
 {
@@ -231,160 +189,6 @@ void Client::setLocale(std::string hl, std::string gl)
         e->http->clearCache();                       // localized payloads must not outlive the old locale
         e->notifyState();
     });
-}
-
-namespace {
-template <class T> using Chain = std::function<void(core::IHttp &, const core::JobToken &, Callback<T>)>;
-}
-
-Job Client::watch(std::string videoId, Callback<WatchResult> done)
-{
-    return m_engine->start<Result<WatchResult>>([videoId](core::IHttp &h, const core::JobToken &t, Callback<WatchResult> d) {
-        core::fetchWatch(h, videoId, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::player(PlayerRequest req, Callback<Player> done)
-{
-    return m_engine->start<Result<Player>>([req](core::IHttp &h, const core::JobToken &t, Callback<Player> d) {
-        core::fetchPlayer(h, req, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::captions(CaptionTrack track, Callback<std::vector<Cue>> done)
-{
-    return m_engine->start<Result<std::vector<Cue>>>(
-        [track](core::IHttp &h, const core::JobToken &t, Callback<std::vector<Cue>> d) {
-            core::fetchCaptions(h, track, t, std::move(d));
-        }, std::move(done));
-}
-
-Job Client::channel(std::string channelId, Callback<Channel> done)
-{
-    return m_engine->start<Result<Channel>>([channelId](core::IHttp &h, const core::JobToken &t, Callback<Channel> d) {
-        core::fetchChannelById(h, channelId, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::channelByUrl(std::string url, Callback<Channel> done)
-{
-    return m_engine->start<Result<Channel>>([url](core::IHttp &h, const core::JobToken &t, Callback<Channel> d) {
-        core::fetchChannelByUrl(h, url, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::channelSubscribed(std::string channelId, Callback<bool> done)
-{
-    return m_engine->start<Result<bool>>([channelId](core::IHttp &h, const core::JobToken &t, Callback<bool> d) {
-        core::fetchChannelSubscribed(h, channelId, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::account(Callback<Account> done)
-{
-    return m_engine->start<Result<Account>>([](core::IHttp &h, const core::JobToken &t, Callback<Account> d) {
-        core::fetchAccount(h, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::action(Action action, std::string targetId, Callback<Done> done)
-{
-    core::ActionKind kind = core::Like;
-    switch (action) {
-    case Action::Subscribe: kind = core::Subscribe; break;
-    case Action::Unsubscribe: kind = core::Unsubscribe; break;
-    case Action::Like: kind = core::Like; break;
-    case Action::Dislike: kind = core::Dislike; break;
-    case Action::RemoveLike: kind = core::RemoveLike; break;
-    }
-    return m_engine->start<Result<Done>>([kind, targetId](core::IHttp &h, const core::JobToken &t, Callback<Done> d) {
-        core::submitAction(h, kind, targetId, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::postComment(std::string videoId, std::string text, Callback<Done> done)
-{
-    return m_engine->start<Result<Done>>([videoId, text](core::IHttp &h, const core::JobToken &t, Callback<Done> d) {
-        core::postComment(h, videoId, text, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::editPlaylist(std::string playlistId, bool add, std::string id, Callback<Done> done)
-{
-    return m_engine->start<Result<Done>>([playlistId, add, id](core::IHttp &h, const core::JobToken &t, Callback<Done> d) {
-        core::editPlaylist(h, playlistId, add ? core::AddVideo : core::RemoveVideo, id, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::votes(std::string videoId, Callback<Votes> done)
-{
-    return m_engine->start<Result<Votes>>([videoId](core::IHttp &h, const core::JobToken &t, Callback<Votes> d) {
-        core::fetchDislikes(h, videoId, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::suggestions(std::string query, Callback<std::vector<std::string>> done)
-{
-    return m_engine->start<Result<std::vector<std::string>>>(
-        [query](core::IHttp &h, const core::JobToken &t, Callback<std::vector<std::string>> d) {
-            core::fetchSearchSuggestions(h, query, t, std::move(d));
-        }, std::move(done));
-}
-
-Job Client::browse(BrowseRequest req, Callback<Page<Video>> done)
-{
-    return m_engine->start<Result<Page<Video>>>([req](core::IHttp &h, const core::JobToken &t, Callback<Page<Video>> d) {
-        core::VideoListSpec s;
-        s.kind = core::VideoListSpec::Browse;
-        s.browseId = req.browseId; s.params = req.params;
-        core::fetchVideoList(h, s, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::search(SearchRequest req, Callback<Page<Video>> done)
-{
-    return m_engine->start<Result<Page<Video>>>([req](core::IHttp &h, const core::JobToken &t, Callback<Page<Video>> d) {
-        core::VideoListSpec s;
-        s.kind = core::VideoListSpec::Search;
-        s.query = req.query; s.sort = req.sort;
-        core::fetchVideoList(h, s, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::comments(std::string videoId, Callback<Page<Comment>> done)
-{
-    return m_engine->start<Result<Page<Comment>>>([videoId](core::IHttp &h, const core::JobToken &t, Callback<Page<Comment>> d) {
-        core::fetchComments(h, videoId, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::channelList(std::string browseId, Callback<Page<Channel>> done)
-{
-    return m_engine->start<Result<Page<Channel>>>([browseId](core::IHttp &h, const core::JobToken &t, Callback<Page<Channel>> d) {
-        core::fetchChannelList(h, browseId, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::searchChannels(std::string query, Callback<Page<Channel>> done)
-{
-    return m_engine->start<Result<Page<Channel>>>([query](core::IHttp &h, const core::JobToken &t, Callback<Page<Channel>> d) {
-        core::fetchUserSearch(h, query, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::playlists(std::string resourceId, std::string params, Callback<Page<Playlist>> done)
-{
-    return m_engine->start<Result<Page<Playlist>>>(
-        [resourceId, params](core::IHttp &h, const core::JobToken &t, Callback<Page<Playlist>> d) {
-            core::fetchPlaylists(h, resourceId, params, t, std::move(d));
-        }, std::move(done));
-}
-
-Job Client::searchPlaylists(std::string query, Callback<Page<Playlist>> done)
-{
-    return m_engine->start<Result<Page<Playlist>>>([query](core::IHttp &h, const core::JobToken &t, Callback<Page<Playlist>> d) {
-        core::fetchPlaylistSearch(h, query, t, std::move(d));
-    }, std::move(done));
 }
 
 Job Client::more(const Cursor<Video> &next, Callback<Page<Video>> done)

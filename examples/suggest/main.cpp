@@ -26,7 +26,7 @@ int main(int argc, char **argv)
         if (n < query.size() && (query[n] & 0xC0) == 0x80) continue;
         const std::string prefix = query.substr(0, n);
         inFlight.cancel();
-        inFlight = client.suggestions(prefix, [&, prefix](const yt::Result<std::vector<std::string>> &r) {
+        inFlight = client.search().suggestions(prefix, [&, prefix](const yt::Result<std::vector<std::string>> &r) {
             done = true;
             if (!r.ok()) { std::fprintf(stderr, "error: %s\n", r.error->message.c_str()); rc = 1; return; }
             std::printf("\"%s\":\n", prefix.c_str());

@@ -100,5 +100,56 @@ struct Engine : std::enable_shared_from_this<Engine> {
     void dropIdentity();                             // tokens, account, caches; onStateChanged
 };
 
+
+// ---- dispatch (client.cpp and groups.cpp instantiate it) ----
+
+template <class T> long httpStatusOf(const Result<T> &r) { return r.error ? r.error->httpStatus : 0; }
+
+template <class Arg>
+using ChainOf = std::function<void(core::IHttp &, const core::JobToken &, std::function<void(const Arg &)>)>;
+
+// One attempt of a chain. A signed-in 401 forces a bearer refresh and re-runs the
+// chain exactly once (retried=true); every other result is delivered. The refresh is
+// forced only while the bearer the attempt went out with is still installed: 401s of
+// calls that raced an already-finished refresh just retry with the new one. Plain recursion
+// through captures — no self-referencing closure that would leak when a canceled
+// chain never calls back. `gen` is the authGen the call started under.
+template <class Arg>
+void runAttempt(Engine *e, std::shared_ptr<JobHandle> h, ChainOf<Arg> chain,
+                std::function<void(const Arg &)> cb, bool retried, uint64_t gen)
+{
+    if (!core::live(h->token) || !e->http) return;
+    // The refresh this attempt waited for found the refresh token revoked (invalid_grant):
+    // fail it rather than run it signed out. Calls started after the revocation run as usual.
+    if (e->revokedGen > gen) {
+        Arg out;
+        out.error = Error{ErrorCode::AuthRequired, "session revoked", 0};
+        e->deliver(h, [cb, out]() { cb(out); });
+        return;
+    }
+    const uint64_t sentWith = e->bearerGen;
+    chain(*e->http, h->token, [e, h, chain, cb, retried, sentWith, gen](const Arg &r) {
+        if (!retried && httpStatusOf(r) == 401 && e->signedIn() && core::live(h->token)) {
+            if (e->bearerGen == sentWith) e->bearerExpiry = Engine::Clock::time_point{};
+            e->ensureBearer([e, h, chain, cb, gen]() { runAttempt<Arg>(e, h, chain, cb, true, gen); });
+            return;
+        }
+        e->deliver(h, [cb, r]() { cb(r); });
+    });
+}
+
+template <class Arg>
+Job Engine::start(std::function<void(core::IHttp &, const core::JobToken &, std::function<void(const Arg &)>)> chain,
+                  std::function<void(const Arg &)> cb)
+{
+    std::shared_ptr<JobHandle> h = newHandle();
+    Engine *e = this;
+    loop.post([e, h, chain, cb]() {
+        const uint64_t gen = e->authGen;
+        e->ensureBearer([e, h, chain, cb, gen]() { runAttempt<Arg>(e, h, chain, cb, false, gen); });
+    });
+    return makeJob(h);
+}
+
 }
 #endif

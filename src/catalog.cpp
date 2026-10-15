@@ -16,18 +16,4 @@ std::vector<FeedEntry> topicFeeds()
     };
 }
 
-std::vector<FeedEntry> feedSections()
-{
-    return {{"Home", "FEwhat_to_watch", false}};   // anonymous OK; personalized when signed in
-}
-
-std::vector<SearchType> searchTypes()
-{
-    return {
-        {"Videos", "video", {{"Relevance", "relevance"}, {"Date", "date"}, {"Views", "views"}, {"Rating", "rating"}}},
-        {"Channels", "user", {{"Relevance", "relevance"}}},
-        {"Playlists", "playlist", {{"Relevance", "relevance"}}},
-    };
-}
-
 }

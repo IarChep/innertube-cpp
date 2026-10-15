@@ -75,7 +75,7 @@ TEST_CASE("refreshesExpiredBearerBeforeCall") {
     r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A1\",\"expires_in\":3600}");
     r.f->queue("browse", "{}");
     bool called = false;
-    r.c->browse({"FEsubscriptions", ""}, [&](const yt::Result<yt::Page<yt::Video>> &) { called = true; });
+    r.c->feeds().subscriptions([&](const yt::Result<yt::Page<yt::Video>> &) { called = true; });
     r.c->runOnce(0);
     REQUIRE(r.f->sentForm.size() == 1);               // the refresh goes out first...
     CHECK(*formValue(r.f->sentForm[0].second, "grant_type") == "refresh_token");
@@ -88,7 +88,7 @@ TEST_CASE("refreshesExpiredBearerBeforeCall") {
 
     // Still fresh: no second refresh.
     r.f->queue("browse", "{}");
-    r.c->browse({"FEhistory", ""}, [](const yt::Result<yt::Page<yt::Video>> &) {});
+    r.c->feeds().history([](const yt::Result<yt::Page<yt::Video>> &) {});
     r.pump();
     CHECK(r.f->sentForm.size() == 1);
     CHECK(r.f->sent.size() == 2);
@@ -97,7 +97,7 @@ TEST_CASE("refreshesExpiredBearerBeforeCall") {
     r.t += seconds(3601);
     r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A2\",\"expires_in\":3600}");
     r.f->queue("browse", "{}");
-    r.c->browse({"FEhistory", ""}, [](const yt::Result<yt::Page<yt::Video>> &) {});
+    r.c->feeds().history([](const yt::Result<yt::Page<yt::Video>> &) {});
     r.pump();
     CHECK(r.f->sentForm.size() == 2);
     CHECK(r.f->session().bearer == "A2");
@@ -106,12 +106,12 @@ TEST_CASE("refresh happens a minute before expiry") {
     Rig r("R");
     r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A1\",\"expires_in\":3600}");
     r.f->queue("browse", "{}");
-    r.c->browse({"FEx", ""}, [](const yt::Result<yt::Page<yt::Video>> &) {});
+    r.c->feeds().topic("FEx", [](const yt::Result<yt::Page<yt::Video>> &) {});
     r.pump();
     r.t += seconds(3600 - 59);
     r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A2\",\"expires_in\":3600}");
     r.f->queue("browse", "{}");
-    r.c->browse({"FEx", ""}, [](const yt::Result<yt::Page<yt::Video>> &) {});
+    r.c->feeds().topic("FEx", [](const yt::Result<yt::Page<yt::Video>> &) {});
     r.pump();
     CHECK(r.f->sentForm.size() == 2);
 }
@@ -122,7 +122,7 @@ TEST_CASE("retries401Once") {
     r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A2\",\"expires_in\":3600}");
     r.f->queue("browse", "{\"error\":{\"code\":401}}", 401);
     int calls = 0; yt::Result<yt::Page<yt::Video>> res;
-    r.c->browse({"FEsubscriptions", ""}, [&](const yt::Result<yt::Page<yt::Video>> &x) { ++calls; res = x; });
+    r.c->feeds().subscriptions([&](const yt::Result<yt::Page<yt::Video>> &x) { ++calls; res = x; });
     r.pump(20);
     CHECK(calls == 1);
     REQUIRE_FALSE(res.ok());
@@ -137,7 +137,7 @@ TEST_CASE("a 401 then success is delivered once, successfully") {
     r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A2\",\"expires_in\":3600}");
     r.f->queue("browse", "{}");
     int calls = 0; yt::Result<yt::Page<yt::Video>> res;
-    r.c->browse({"FEsubscriptions", ""}, [&](const yt::Result<yt::Page<yt::Video>> &x) { ++calls; res = x; });
+    r.c->feeds().subscriptions([&](const yt::Result<yt::Page<yt::Video>> &x) { ++calls; res = x; });
     r.pump(20);
     CHECK(calls == 1);
     CHECK(res.ok());
@@ -147,7 +147,7 @@ TEST_CASE("signed out: a 401 is delivered without refresh or retry") {
     Rig r;
     r.f->queue("browse", "{\"error\":{}}", 401);
     int calls = 0;
-    r.c->browse({"FEx", ""}, [&](const yt::Result<yt::Page<yt::Video>> &) { ++calls; });
+    r.c->feeds().topic("FEx", [&](const yt::Result<yt::Page<yt::Video>> &) { ++calls; });
     r.pump();
     CHECK(calls == 1);
     CHECK(r.f->sentForm.empty());
@@ -159,7 +159,7 @@ TEST_CASE("concurrent authed calls share one refresh") {
     for (int i = 0; i < 3; ++i) r.f->queue("browse", "{}");
     int calls = 0;
     for (int i = 0; i < 3; ++i)
-        r.c->browse({"FE" + std::to_string(i), ""}, [&](const yt::Result<yt::Page<yt::Video>> &) { ++calls; });
+        r.c->feeds().topic("FE" + std::to_string(i), [&](const yt::Result<yt::Page<yt::Video>> &) { ++calls; });
     r.pump();
     CHECK(r.f->sentForm.size() == 1);
     CHECK(r.f->sent.size() == 3);
@@ -169,7 +169,7 @@ TEST_CASE("signOut clears state") {
     Rig r("R");
     r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A1\",\"expires_in\":3600}");
     r.f->queue("browse", "{}");
-    r.c->browse({"FEx", ""}, [](const yt::Result<yt::Page<yt::Video>> &) {});
+    r.c->feeds().topic("FEx", [](const yt::Result<yt::Page<yt::Video>> &) {});
     r.pump();
     CHECK(r.c->auth().signedIn());
     r.c->auth().signOut();
@@ -180,7 +180,7 @@ TEST_CASE("signOut clears state") {
     CHECK(r.states.back().refreshToken.empty());
     CHECK_FALSE(r.states.back().account.has_value());
     r.f->queue("browse", "{}");
-    r.c->browse({"FEx", ""}, [](const yt::Result<yt::Page<yt::Video>> &) {});
+    r.c->feeds().topic("FEx", [](const yt::Result<yt::Page<yt::Video>> &) {});
     r.pump();
     CHECK(r.f->sentForm.size() == 1);                 // signed out: no refresh any more
 }
@@ -205,7 +205,7 @@ TEST_CASE("a refresh completing after signOut does not reinstall the old bearer"
     Rig r("R");
     r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A1\",\"expires_in\":3600}");
     r.f->queue("browse", "{}");
-    r.c->browse({"FEsubscriptions", ""}, [](const yt::Result<yt::Page<yt::Video>> &) {});
+    r.c->feeds().subscriptions([](const yt::Result<yt::Page<yt::Video>> &) {});
     r.c->runOnce(0);                                  // the refresh is now in flight
     REQUIRE(r.f->sentForm.size() == 1);
     r.c->auth().signOut();
@@ -242,7 +242,7 @@ TEST_CASE("a late 401 for an already-replaced bearer does not refresh again") {
     for (int i = 0; i < 2; ++i) r.f->queue("browse", "{}");
     int ok = 0;
     for (int i = 0; i < 2; ++i)
-        r.c->browse({"FEsubscriptions", "p" + std::to_string(i)},
+        r.c->feeds().subscriptions(
                     [&](const yt::Result<yt::Page<yt::Video>> &x) { ok += x.ok(); });
     r.c->runOnce(0);
     REQUIRE(r.f->pending() == 1);                     // the initial refresh
@@ -272,7 +272,7 @@ TEST_CASE("player: a 401 on the bearer's client refreshes and retries") {
         r.f->queue("player", "{}");                      // IOS: nothing
     }
     int calls = 0; yt::Result<yt::Player> res;
-    r.c->player({"vid"}, [&](const yt::Result<yt::Player> &p) { ++calls; res = p; });
+    r.c->videos().player("vid11111111", [&](const yt::Result<yt::Player> &p) { ++calls; res = p; });
     r.pump(30);
     CHECK(calls == 1);
     CHECK(r.f->sentForm.size() == 2);                 // initial + the forced refresh
@@ -349,7 +349,7 @@ TEST_CASE("invalid_grant on refresh signs out and fails the waiting call") {
     Rig r("R");
     r.f->queue(yt::Catalog::kTokenUrl, "{\"error\":\"invalid_grant\",\"error_description\":\"Token has been expired or revoked.\"}", 400);
     bool called = false; yt::Result<yt::Page<yt::Video>> got;
-    r.c->browse({"FEsubscriptions", ""}, [&](const yt::Result<yt::Page<yt::Video>> &x) { got = x; called = true; });
+    r.c->feeds().subscriptions([&](const yt::Result<yt::Page<yt::Video>> &x) { got = x; called = true; });
     r.pump();
     REQUIRE(called);
     REQUIRE_FALSE(got.ok());
@@ -360,7 +360,7 @@ TEST_CASE("invalid_grant on refresh signs out and fails the waiting call") {
     CHECK(r.states.back().refreshToken.empty());
     // The next call runs signed out instead of refreshing a dead token again.
     r.f->queue("browse", "{}");
-    r.c->browse({"FEwhat_to_watch", ""}, [](const yt::Result<yt::Page<yt::Video>> &) {});
+    r.c->feeds().home([](const yt::Result<yt::Page<yt::Video>> &) {});
     r.pump();
     CHECK(r.f->sentForm.size() == 1);
     CHECK(r.f->sent.size() == 1);
@@ -374,7 +374,7 @@ TEST_CASE("a 401 whose forced refresh is revoked fails with AuthRequired") {
     r.f->queue(yt::Catalog::kTokenUrl, "{\"error\":\"invalid_grant\"}", 400);
     r.f->queue("browse", "{}");
     bool called = false; yt::Result<yt::Page<yt::Video>> got;
-    r.c->browse({"FEsubscriptions", ""}, [&](const yt::Result<yt::Page<yt::Video>> &x) { got = x; called = true; });
+    r.c->feeds().subscriptions([&](const yt::Result<yt::Page<yt::Video>> &x) { got = x; called = true; });
     r.pump();
     REQUIRE(called);
     REQUIRE_FALSE(got.ok());
@@ -392,7 +392,7 @@ TEST_CASE("invalid_grant does not cancel a sign-in in progress") {
     r.f->queue("browse", "{}");
     bool done = false; yt::Result<yt::Done> res;
     r.c->auth().signIn([](const yt::DeviceCode &) {}, [&](const yt::Result<yt::Done> &x) { res = x; done = true; });
-    r.c->browse({"FEsubscriptions", ""}, [](const yt::Result<yt::Page<yt::Video>> &) {});
+    r.c->feeds().subscriptions([](const yt::Result<yt::Page<yt::Video>> &) {});
     r.pumpFor(5000, [&] { return done; });
     REQUIRE(done);
     CHECK(res.ok());

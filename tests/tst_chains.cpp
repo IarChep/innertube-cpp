@@ -379,7 +379,8 @@ TEST_CASE("more with no next page fails with InvalidArgument and sends nothing")
     CHECK(t.sent.empty());
 }
 TEST_CASE("videoListTransportErrorKeepsCode") {
-    FakeHttp t; t.queue("browse", "{\"error\":{}}", 401);
+    FakeHttp t; t.session().bearer = "tok";
+    t.queue("browse", "{\"error\":{}}", 401);
     VideoListSpec spec; spec.browseId = "FEsubscriptions";
     Cap<Page<Video>> c;
     fetchVideoList(t, spec, newJob(), c.fn());
@@ -486,29 +487,6 @@ TEST_CASE("videoLoadWatch") {
 
 
 // ---- playlists / channels ----
-TEST_CASE("userResolveThenBrowse") {
-    FakeHttp t;
-    t.queue("navigation/resolve_url", "{\"endpoint\":{\"browseEndpoint\":{\"browseId\":\"UCabc\"}}}");
-    t.queue("browse", "{\"header\":{\"c4TabbedHeaderRenderer\":{\"title\":\"Chan\",\"channelId\":\"UCabc\"}}}");
-    Cap<Channel> c;
-    fetchChannelByUrl(t, "https://youtube.com/@chan", newJob(), c.fn());
-    t.flush();
-    CHECK(c.calls == 1);
-    REQUIRE(c.r.ok());
-    CHECK(c.r.value.id == "UCabc");
-    CHECK(t.sent.size() == 2);
-}
-TEST_CASE("userResolveFails") {
-    FakeHttp t; t.queue("navigation/resolve_url", "{}");
-    Cap<Channel> c;
-    fetchChannelByUrl(t, "https://youtube.com/@nope", newJob(), c.fn());
-    t.flush();
-    CHECK(t.sent.size() == 1);
-    CHECK(c.calls == 1);
-    REQUIRE_FALSE(c.r.ok());
-    CHECK(has(c.r.error->message, "could not resolve channel"));
-    CHECK(c.r.error->code == ErrorCode::Unavailable);
-}
 TEST_CASE("channelByIdUnavailable") {
     FakeHttp t; t.queue("browse", "{}");
     Cap<Channel> c;
@@ -579,7 +557,7 @@ TEST_CASE("searchSuggestionsTransportError") {
 // ---- fetchAccount ----
 TEST_CASE("accountFetchesIdentity") {
     FakeHttp t; t.queue("account/accounts_list", loadFixtureRaw("accounts_list.json"));
-    Cap<Account> c;
+    Cap<AccountInfo> c;
     fetchAccount(t, newJob(), c.fn());
     t.flush();
     CHECK(c.calls == 1);
@@ -591,7 +569,7 @@ TEST_CASE("accountFetchesIdentity") {
 }
 TEST_CASE("accountUnavailable") {
     FakeHttp t; t.queue("account/accounts_list", "{}");
-    Cap<Account> c;
+    Cap<AccountInfo> c;
     fetchAccount(t, newJob(), c.fn());
     t.flush();
     CHECK(c.calls == 1);
@@ -733,7 +711,8 @@ TEST_CASE("routing") {
     CHECK(browseClient("FEwhat_to_watch", false) == (int)ClientId::WEB);
     CHECK(browseClient("FEtrending", true) == (int)ClientId::WEB);
     CHECK(browseClient("VLLL", true) == (int)ClientId::TVHTML5);
-    CHECK(browseClient("VLWL", false) == (int)ClientId::TVHTML5);   // requires auth: always TV
+    CHECK(browseClient("VLWL", true) == (int)ClientId::TVHTML5);    // requires auth: always TV
+    CHECK(browseClient("VLWL", false) == -1);                       // ...and signed out, nothing is sent (spec S4)
     FakeHttp authed; authed.session().bearer = "tok";
     fetchWatch(authed, "vid", newJob(), [](const Result<WatchResult> &) {});
     CHECK(authed.lastClientFor("next") == (int)ClientId::TVHTML5);

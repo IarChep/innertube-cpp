@@ -40,6 +40,7 @@ add_library(innertube STATIC
     src/player.cpp
     src/link.cpp
     src/client.cpp
+    src/groups.cpp
     src/auth.cpp)
 add_library(innertube::innertube ALIAS innertube)
 # The impl needs C++23 (Glaze v7); consumers only see the C++17 floor (the PUBLIC feature).

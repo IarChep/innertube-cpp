@@ -69,10 +69,9 @@ std::string json3Url(std::string url);
 // One caption track as cues: a raw GET of json3Url(track.url). An empty 200 is no cues.
 void fetchCaptions(IHttp &, CaptionTrack track, const JobToken &, Callback<std::vector<Cue>> done);
 void fetchChannelById(IHttp &, std::string channelId, const JobToken &, Callback<Channel> done);
-void fetchChannelByUrl(IHttp &, std::string url, const JobToken &, Callback<Channel> done);
 // The viewer's subscribe state — an AUTHED TVHTML5 browse (WEB is anonymous).
 void fetchChannelSubscribed(IHttp &, std::string channelId, const JobToken &, Callback<bool> done);
-void fetchAccount(IHttp &, const JobToken &, Callback<Account> done);
+void fetchAccount(IHttp &, const JobToken &, Callback<AccountInfo> done);
 void submitAction(IHttp &, ActionKind, std::string targetId, const JobToken &, Callback<Done> done);
 // The id inside whatever the user pasted (yt::Link rules); nullopt when the text is not
 // a link of that kind. Videos: watch, youtu.be, embed, shorts and live links and bare ids.
