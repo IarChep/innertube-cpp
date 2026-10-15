@@ -27,6 +27,9 @@ inline void captureToken(std::string_view key, std::string_view value, std::stri
     readJson(s, value);
     if (key == "continuationCommand") {
         if (s.token && !s.token->empty()) *out = *s.token;
+        else if (s.innertubeCommand && s.innertubeCommand->continuationCommand
+                 && s.innertubeCommand->continuationCommand->token)
+            *out = *s.innertubeCommand->continuationCommand->token;
     } else {
         if (s.continuation && !s.continuation->empty()) *out = *s.continuation;
     }

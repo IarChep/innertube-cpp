@@ -95,9 +95,14 @@ inline std::string contentOf(const std::optional<ContentText> &c)
 // The two shapes a continuation token hides under (Glaze-reflected against the
 // wrapper object value captured by the scanner — same as continuation.cpp's
 // TokenShapes).
+struct InnerContinuation { std::optional<std::string> token; };
+struct InnerCommand { std::optional<InnerContinuation> continuationCommand; };
 struct TokenShapes {
     std::optional<std::string> token;          // continuationCommand
     std::optional<std::string> continuation;   // next/reloadContinuationData
+    // continuationItemViewModel (2026 playlist pages): the token one level deeper, in
+    // continuationCommand.innertubeCommand.continuationCommand.
+    std::optional<InnerCommand> innertubeCommand;
 };
 
 // ---- the top-level InnerTube error envelope: {"error": {"code":.., "message": ".."}}

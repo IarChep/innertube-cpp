@@ -553,3 +553,17 @@ TEST_CASE("a watch page: date, exact views and the related list's continuation")
     CHECK(v.related.items[0].id == "rel1");
     CHECK(related == "RELATED");
 }
+// YouTube's 2026 playlist pages wrap the next-page token one level deeper
+// (continuationItemViewModel.continuationCommand.innertubeCommand.continuationCommand); the
+// outer continuationCommand has no token, so playlists stopped after 100 videos.
+TEST_CASE("a token nested in innertubeCommand is found") {
+    const std::string page =
+        "{\"contents\":[{\"lockupViewModel\":{\"contentId\":\"aaa11111111\",\"contentType\":\"LOCKUP_CONTENT_TYPE_VIDEO\"}},"
+        "{\"continuationItemViewModel\":{\"continuationCommand\":{\"innertubeCommand\":{"
+        "\"continuationCommand\":{\"token\":\"NESTED\"}}}}}]}";
+    CHECK(findContinuationToken(page) == "NESTED");
+    std::string token;
+    const std::vector<VideoItem> v = parseVideoList(page, &token);
+    CHECK(v.size() == 1);
+    CHECK(token == "NESTED");
+}
