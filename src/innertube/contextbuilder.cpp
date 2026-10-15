@@ -18,6 +18,7 @@ struct Client {
     std::optional<int> androidSdkVersion;
     std::optional<std::string> platform;
     std::optional<std::string> visitorData;
+    std::optional<std::string> userAgent;          // VISIONOS repeats its UA in the context
 };
 struct User {
     bool lockedSafetyMode = false;
@@ -62,6 +63,10 @@ std::string ContextBuilder::contextJson(ClientId id, const Session &s) {
     } else if (id == ClientId::ANDROID_VR) {
         ctx.client.androidSdkVersion = 32; ctx.client.osName = "Android"; ctx.client.osVersion = "12L";
         ctx.client.deviceMake = "Oculus"; ctx.client.deviceModel = "Quest 3"; ctx.client.platform = "MOBILE";
+    } else if (id == ClientId::VISIONOS) {
+        ctx.client.deviceMake = "Apple"; ctx.client.deviceModel = "RealityDevice14,1";
+        ctx.client.osName = "visionOS"; ctx.client.osVersion = "1.0.2.21O209";
+        ctx.client.userAgent = ci.userAgent;
     }
     // Omit visitorData ONLY on IOS (see omitVisitor above): there a cross-client
     // visitorData is a SABR "distrust" signal that strips the hlsManifestUrl we play,

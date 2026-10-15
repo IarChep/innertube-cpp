@@ -1,259 +1,415 @@
+// /player answers → the client walk's view (PlayerPart), storyboard specs and json3
+// captions. A fixed root-level schema: one typed partial read (unknown keys skipped);
+// only the offline slate, whose path differs per client, is found by a bounded scan.
 #include "playerparser.h"
 #include "json/ytjson.h"
+#include "json/jsonscan.h"
+#include <charconv>
 #include <string>
 namespace yt {
 
 using namespace gj;
+static const std::string &str(const std::string &s) { return s; }
+static std::string str(const std::optional<std::string> &s) { return s ? str(*s) : std::string(); }
 
-// The /player response is a fixed root-level schema — no tree walking needed,
-// one typed partial read per entry point (unknown keys skipped).
-namespace pj {
+namespace pr {
 
-struct PlayabilityStatus {
-    std::optional<std::string> status;
-    std::optional<std::string> reason;
+struct Range {
+    std::optional<FlexInt> start;
+    std::optional<FlexInt> end;
 };
-struct Format {
-    std::optional<std::string> url;
-    std::optional<std::string> qualityLabel;
-    std::optional<std::string> mimeType;
-    std::optional<std::string> audioQuality;
+struct AudioTrackJ {
+    std::optional<std::string> displayName;
+    std::optional<std::string> id;
+    std::optional<bool> audioIsDefault;
+};
+struct FormatJ {
     std::optional<FlexInt> itag;
+    std::optional<std::string> url;
+    std::optional<std::string> signatureCipher;
+    std::optional<std::string> cipher;
+    std::optional<std::string> mimeType;
+    std::optional<std::string> qualityLabel;
     std::optional<FlexInt> width;
     std::optional<FlexInt> height;
+    std::optional<FlexInt> fps;
     std::optional<FlexInt> bitrate;
+    std::optional<FlexInt> averageBitrate;
+    std::optional<FlexInt> contentLength;
+    std::optional<FlexInt> approxDurationMs;
+    std::optional<FlexInt> lastModified;
+    std::optional<Range> initRange;
+    std::optional<Range> indexRange;
+    std::optional<AudioTrackJ> audioTrack;
+    std::optional<std::string> xtags;
+    std::optional<bool> isDrc;
 };
-struct StreamingData {
+struct StreamingJ {
+    std::optional<FlexInt> expiresInSeconds;
+    std::optional<std::vector<FormatJ>> formats;
+    std::optional<std::vector<FormatJ>> adaptiveFormats;
     std::optional<std::string> hlsManifestUrl;
-    std::optional<std::string> serverAbrStreamingUrl;   // SABR offered; may coexist with fetchable urls
-    std::optional<std::vector<Format>> formats;
-    std::optional<std::vector<Format>> adaptiveFormats;
+    std::optional<std::string> dashManifestUrl;
+    std::optional<std::string> serverAbrStreamingUrl;
 };
-struct VideoDetails {
+struct UstreamerJ {
+    std::optional<std::string> videoPlaybackUstreamerConfig;
+};
+struct MediaCommonJ {
+    std::optional<UstreamerJ> mediaUstreamerRequestConfig;
+};
+struct PlayerConfigJ {
+    std::optional<MediaCommonJ> mediaCommonConfig;
+};
+struct StatusJ {
+    std::optional<std::string> status;
+    std::optional<std::string> reason;
+    std::optional<FlexInt> desktopLegacyAgeGateReason;
+};
+struct DetailsJ {
     std::optional<std::string> videoId;
     std::optional<std::string> title;
     std::optional<std::string> author;
     std::optional<std::string> channelId;
     std::optional<std::string> shortDescription;
-    std::optional<FlexInt> viewCount;                   // arrives as a quoted string
+    std::optional<FlexInt> lengthSeconds;
+    std::optional<FlexInt> viewCount;
+    std::optional<bool> isLive;
+    std::optional<bool> isLiveContent;
+    std::optional<bool> isUpcoming;
     std::optional<ThumbSet> thumbnail;
 };
-struct CaptionTrack {
+struct TrackJ {
     std::optional<std::string> baseUrl;
     std::optional<std::string> languageCode;
     std::optional<Text> name;
+    std::optional<std::string> kind;
+    std::optional<bool> isTranslatable;
 };
-struct TracklistR {
-    std::optional<std::vector<CaptionTrack>> captionTracks;
+struct TracklistJ {
+    std::optional<std::vector<TrackJ>> captionTracks;
 };
-struct Captions {
-    std::optional<TracklistR> playerCaptionsTracklistRenderer;
+struct CaptionsJ {
+    std::optional<TracklistJ> playerCaptionsTracklistRenderer;
 };
-struct PlayerRoot {
-    std::optional<PlayabilityStatus> playabilityStatus;
-    std::optional<StreamingData> streamingData;
-    std::optional<VideoDetails> videoDetails;
-    std::optional<Captions> captions;
+struct SpecJ {
+    std::optional<std::string> spec;
+};
+struct StoryboardsJ {
+    std::optional<SpecJ> playerStoryboardSpecRenderer;
+};
+struct UrlJ {
+    std::optional<std::string> baseUrl;
+};
+struct TrackingJ {
+    std::optional<UrlJ> videostatsPlaybackUrl;
+    std::optional<UrlJ> videostatsWatchtimeUrl;
+};
+struct BroadcastJ {
+    std::optional<std::string> startTimestamp;
+};
+struct MicroRendererJ {
+    std::optional<BroadcastJ> liveBroadcastDetails;
+};
+struct MicroformatJ {
+    std::optional<MicroRendererJ> playerMicroformatRenderer;
+};
+struct Root {
+    std::optional<StatusJ> playabilityStatus;
+    std::optional<StreamingJ> streamingData;
+    std::optional<PlayerConfigJ> playerConfig;
+    std::optional<DetailsJ> videoDetails;
+    std::optional<CaptionsJ> captions;
+    std::optional<StoryboardsJ> storyboards;
+    std::optional<TrackingJ> playbackTracking;
+    std::optional<MicroformatJ> microformat;
+};
+struct SlateJ {
+    std::optional<FlexInt> scheduledStartTime;
+    std::optional<Text> mainText;
+    std::optional<Text> subtitleText;
+};
+struct Json3Seg {
+    std::optional<std::string> utf8;
+};
+struct Json3Event {
+    std::optional<FlexInt> tStartMs;
+    std::optional<FlexInt> dDurationMs;
+    std::optional<std::vector<Json3Seg>> segs;
+};
+struct Json3Root {
+    std::optional<std::vector<Json3Event>> events;
 };
 
-} // namespace pj
+} // namespace pr
 
-static const std::string &str(const std::string &s) { return s; }
-static std::string str(const std::optional<std::string> &s) { return s ? str(*s) : std::string(); }
+namespace {
 
-// ---------------------------------------------------------------------------
-// Static helpers — each takes an already-parsed root, contains verbatim logic
-// ---------------------------------------------------------------------------
-
-static bool playableOf(const pj::PlayerRoot &root, std::string *reason)
+// The verdict from the status word alone: the reason is localized by hl.
+Playability kindOf(const std::string &status, bool ageMarker)
 {
+    if (status == "OK") return Playability::Ok;
+    if (status.empty()) return Playability::Unknown;
+    if (ageMarker || status.rfind("AGE_", 0) == 0 || status == "CONTENT_CHECK_REQUIRED")
+        return Playability::AgeRestricted;
+    // The walk renames it LoginRequired when the bearer's TV client got it.
+    if (status == "LOGIN_REQUIRED") return Playability::BotCheck;
+    // Becomes Upcoming once a start time is known.
+    if (status == "LIVE_STREAM_OFFLINE") return Playability::LiveOffline;
+    return Playability::Unplayable;              // ERROR, UNPLAYABLE, …
+}
+
+// "2026-09-09T20:00:00+03:00" / "…Z" / "….123Z" → unix seconds; 0 when malformed.
+int64_t unixFromIso8601(std::string_view s)
+{
+    auto num = [s](size_t at, size_t n, int &out) {
+        if (at + n > s.size()) return false;
+        const char *b = s.data() + at, *e = b + n;
+        const std::from_chars_result r = std::from_chars(b, e, out);
+        return r.ec == std::errc() && r.ptr == e;
+    };
+    int y = 0, mo = 0, d = 0, h = 0, mi = 0, se = 0;
+    if (s.size() < 19 || !num(0, 4, y) || s[4] != '-' || !num(5, 2, mo) || s[7] != '-' || !num(8, 2, d)
+        || (s[10] != 'T' && s[10] != ' ') || !num(11, 2, h) || s[13] != ':' || !num(14, 2, mi)
+        || s[16] != ':' || !num(17, 2, se) || mo < 1 || mo > 12)
+        return 0;
+    // days_from_civil (Howard Hinnant's public-domain algorithm).
+    y -= mo <= 2;
+    const int era = (y >= 0 ? y : y - 399) / 400;
+    const unsigned yoe = (unsigned) (y - era * 400);
+    const unsigned doy = (unsigned) ((153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1);
+    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    int64_t t = ((int64_t) era * 146097 + (int64_t) doe - 719468) * 86400 + h * 3600 + mi * 60 + se;
+    size_t z = 19;
+    while (z < s.size() && (s[z] == '.' || (s[z] >= '0' && s[z] <= '9'))) ++z;   // fractional seconds
+    if (z < s.size() && (s[z] == '+' || s[z] == '-')) {
+        int oh = 0, om = 0;
+        if (!num(z + 1, 2, oh) || z + 3 >= s.size() || s[z + 3] != ':' || !num(z + 4, 2, om)) return 0;
+        const int64_t off = oh * 3600 + om * 60;
+        t += s[z] == '+' ? -off : off;
+    }
+    return t;
+}
+
+// The offline slate lies under playabilityStatus on WEB-family answers and elsewhere on
+// others: find the renderer anywhere, bounded by kScanMaxDepth like every scan.
+struct SlateFinder {
+    std::string_view found;
+    void enter(int) {}
+    void leave(int) {}
+    scan::Action what(std::string_view k, int)
+    {
+        if (!found.empty()) return scan::Action::Skip;
+        return k == "liveStreamOfflineSlateRenderer" ? scan::Action::Capture : scan::Action::Descend;
+    }
+    void capture(std::string_view, std::string_view v, int) { found = v; }
+};
+
+Format formatOf(const pr::FormatJ &f, bool muxed)
+{
+    Format o;
+    o.itag = (int) toInt64(f.itag);
+    o.url = str(f.url);
+    o.sealed = o.url.empty() && (f.signatureCipher.has_value() || f.cipher.has_value());
+    const std::string mime = str(f.mimeType);         // video/mp4; codecs="avc1.640028"
+    o.mimeType = mime.substr(0, mime.find(';'));
+    const size_t q = mime.find("codecs=\"");
+    if (q != std::string::npos) {
+        const size_t b = q + 8, e = mime.find('"', b);
+        o.codecs = mime.substr(b, e == std::string::npos ? std::string::npos : e - b);
+    }
+    o.qualityLabel = str(f.qualityLabel);
+    o.width = (int) toInt64(f.width);
+    o.height = (int) toInt64(f.height);
+    o.fps = (int) toInt64(f.fps);
+    o.bitrate = toInt64(f.bitrate);
+    o.averageBitrate = toInt64(f.averageBitrate);
+    o.contentLength = toInt64(f.contentLength);
+    o.durationMs = toInt64(f.approxDurationMs);
+    o.lastModified = toInt64(f.lastModified);
+    if (f.initRange) o.initRange = ByteRange{toInt64(f.initRange->start), toInt64(f.initRange->end)};
+    if (f.indexRange) o.indexRange = ByteRange{toInt64(f.indexRange->start), toInt64(f.indexRange->end)};
+    o.xtags = str(f.xtags);
+    o.hasVideo = o.mimeType.rfind("video/", 0) == 0;
+    o.hasAudio = muxed || o.mimeType.rfind("audio/", 0) == 0;
+    const bool drcFlag = f.isDrc.value_or(false);
+    if (f.audioTrack || drcFlag) {
+        // xtags is a small protobuf whose pairs ("acont" → "original" / "dubbed" /
+        // "dubbed-auto", "drc" → "1") are in clear text; displayName is localized and
+        // useless as a marker.
+        std::string marks;
+        base64Decode(o.xtags, &marks);
+        AudioTrack a;
+        if (f.audioTrack) {
+            a.id = str(f.audioTrack->id);
+            a.name = str(f.audioTrack->displayName);
+            a.isDefault = f.audioTrack->audioIsDefault.value_or(false);
+            a.language = a.id.substr(0, a.id.find('.'));
+        }
+        a.original = marks.find("original") != std::string::npos;
+        a.autoDubbed = marks.find("dubbed-auto") != std::string::npos;
+        a.drc = drcFlag || marks.find("drc") != std::string::npos;
+        o.audio = a;
+    }
+    return o;
+}
+
+void splitInto(std::string_view s, char sep, std::vector<std::string_view> &out)
+{
+    out.clear();
+    size_t b = 0;
+    while (true) {
+        const size_t e = s.find(sep, b);
+        out.push_back(s.substr(b, e == std::string_view::npos ? std::string_view::npos : e - b));
+        if (e == std::string_view::npos) return;
+        b = e + 1;
+    }
+}
+
+bool numberOf(std::string_view s, int64_t &out)
+{
+    const std::from_chars_result r = std::from_chars(s.data(), s.data() + s.size(), out);
+    return !s.empty() && r.ec == std::errc() && r.ptr == s.data() + s.size();
+}
+
+void replaceAll(std::string &s, std::string_view what, std::string_view with)
+{
+    for (size_t at = s.find(what); at != std::string::npos; at = s.find(what, at + with.size()))
+        s.replace(at, what.size(), with);
+}
+
+} // namespace
+
+PlayerPart parsePlayerResponse(const std::string &body)
+{
+    pr::Root root{};
+    readJsonDoc(root, body);
+    PlayerPart p;
     if (root.playabilityStatus) {
-        const std::string st = str(root.playabilityStatus->status);
-        if (!st.empty() && st != "OK") {
-            if (reason) *reason = st + ": " + str(root.playabilityStatus->reason);
-            return false;
-        }
+        const pr::StatusJ &st = *root.playabilityStatus;
+        p.status.status = str(st.status);
+        p.status.reason = str(st.reason);
+        p.status.kind = kindOf(p.status.status, st.desktopLegacyAgeGateReason.has_value());
     }
-    return true;
-}
-
-// Build one Stream from a parsed format (muxed or adaptive). `muxed` = came
-// from streamingData.formats (video+audio in one file). Returns false if the
-// format has no fetchable url (ciphered / SABR-withheld).
-static bool streamOf(const pj::Format &f, bool muxed, Stream &s)
-{
-    const std::string url = str(f.url);
-    if (url.empty()) return false;
-    const std::string mime = str(f.mimeType);
-    s.id = std::to_string(toInt64(f.itag));
-    s.url = url;
-    s.mimeType = mime;
-    s.width = (int)toInt64(f.width);
-    s.height = (int)toInt64(f.height);
-    s.bitrate = (int)toInt64(f.bitrate);
-    s.hasAudio = muxed || mime.starts_with("audio/");
-    // Human label: "360p" for video, else the audio quality tier / mime subtype.
-    if (!str(f.qualityLabel).empty())      s.description = str(f.qualityLabel);
-    else if (s.width > 0)                     s.description = std::to_string(s.height) + "p";
-    else if (!str(f.audioQuality).empty()) s.description = str(f.audioQuality);
-    else                                      s.description = mime.substr(0, mime.find(';'));
-    return true;
-}
-
-// The FULL stream catalog: HLS manifest + every url-ful muxed / video-only /
-// audio-only format, each tagged (see Stream). StreamSet slices this into
-// its video/audio lists and default picks; consumers can select any entry.
-static std::vector<Stream> streamsOf(const pj::PlayerRoot &root, bool *sawCipheredOnly)
-{
-    std::vector<Stream> out;
-    if (sawCipheredOnly) *sawCipheredOnly = false;
-    if (!root.streamingData) return out;
-    const pj::StreamingData &sd = *root.streamingData;
-    const std::string hls = str(sd.hlsManifestUrl);
-    if (!hls.empty()) {
-        Stream s; s.id = "hls"; s.description = "HLS (adaptive)"; s.url = hls; s.hasAudio = true;
-        out.push_back(s);
-    }
-    int formatsSeen = 0;
-    if (sd.formats)         // muxed video+audio (itag 18/22)
-        for (const pj::Format &f : *sd.formats) {
-            ++formatsSeen;
-            Stream s; if (streamOf(f, true, s)) out.push_back(s);
+    if (p.status.status == "LIVE_STREAM_OFFLINE") {
+        SlateFinder sf;
+        scan::document(body, sf);
+        if (!sf.found.empty()) {
+            pr::SlateJ sl{};
+            readJson(sl, sf.found);
+            p.status.scheduledStartSecs = toInt64(sl.scheduledStartTime);
+            const std::string main = textOf(sl.mainText), sub = textOf(sl.subtitleText);
+            p.status.slateText = (!main.empty() && !sub.empty()) ? main + "\n" + sub : main + sub;
         }
-    if (sd.adaptiveFormats) // separate video-only + audio-only tracks
-        for (const pj::Format &f : *sd.adaptiveFormats) {
-            ++formatsSeen;
-            Stream s; if (streamOf(f, false, s)) out.push_back(s);
-        }
-    // Nothing playable but formats were present → every format was ciphered.
-    if (sawCipheredOnly) *sawCipheredOnly = out.empty() && formatsSeen > 0;
-    return out;
-}
-
-static Video detailsOf(const pj::PlayerRoot &root)
-{
-    Video v;
-    if (!root.videoDetails) return v;
-    const pj::VideoDetails &d = *root.videoDetails;
-    v.id = str(d.videoId);
-    v.title = str(d.title);
-    v.channelName = str(d.author);
-    v.channelId = str(d.channelId);
-    v.description = str(d.shortDescription);
-    v.viewCount = toInt64(d.viewCount);
-    if (d.thumbnail) v.thumbnailUrl = str(lastThumbUrl(*d.thumbnail));
-    if (v.thumbnailUrl.empty() && !v.id.empty())
-        v.thumbnailUrl = "https://i.ytimg.com/vi/" + v.id + "/hqdefault.jpg";
-    v.largeThumbnailUrl = v.thumbnailUrl;
-    return v;
-}
-
-static std::vector<Subtitle> captionsOf(const pj::PlayerRoot &root)
-{
-    std::vector<Subtitle> out;
-    if (!root.captions || !root.captions->playerCaptionsTracklistRenderer) return out;
-    const pj::TracklistR &tl = *root.captions->playerCaptionsTracklistRenderer;
-    if (!tl.captionTracks) return out;
-    for (const pj::CaptionTrack &t : *tl.captionTracks) {
-        Subtitle s;
-        s.url = str(t.baseUrl);
-        s.language = str(t.languageCode);
-        s.title = str(textOf(t.name));
-        s.id = s.language;
-        if (!s.url.empty()) out.push_back(s);
+        if (p.status.scheduledStartSecs <= 0 && root.microformat && root.microformat->playerMicroformatRenderer
+            && root.microformat->playerMicroformatRenderer->liveBroadcastDetails)
+            p.status.scheduledStartSecs =
+                unixFromIso8601(str(root.microformat->playerMicroformatRenderer->liveBroadcastDetails->startTimestamp));
+        if (p.status.scheduledStartSecs > 0) p.status.kind = Playability::Upcoming;
     }
-    return out;
-}
-
-// ---------------------------------------------------------------------------
-// parsePlayer — ONE typed read, all four sections
-// ---------------------------------------------------------------------------
-
-static PlayerResult parsePlayerRoot(const pj::PlayerRoot &root)
-{
-    PlayerResult r;
-    r.playable = playableOf(root, &r.reason);
-    r.streams  = streamsOf(root, &r.cipheredOnly);
+    p.final = p.status.status == "ERROR" || p.status.kind == Playability::Upcoming
+           || p.status.kind == Playability::LiveOffline;
     if (root.streamingData) {
-        const pj::StreamingData &sd = *root.streamingData;
-        r.sabr = sd.serverAbrStreamingUrl && !sd.serverAbrStreamingUrl->empty();
-        r.formatsSeen  = sd.formats ? (int)sd.formats->size() : 0;
-        r.adaptiveSeen = sd.adaptiveFormats ? (int)sd.adaptiveFormats->size() : 0;
+        const pr::StreamingJ &sd = *root.streamingData;
+        if (sd.formats) for (const pr::FormatJ &f : *sd.formats) p.formats.push_back(formatOf(f, true));
+        if (sd.adaptiveFormats)
+            for (const pr::FormatJ &f : *sd.adaptiveFormats) p.formats.push_back(formatOf(f, false));
+        p.hlsUrl = str(sd.hlsManifestUrl);
+        p.dashUrl = str(sd.dashManifestUrl);
+        p.sabrUrl = str(sd.serverAbrStreamingUrl);
+        p.expiresInSecs = toInt64(sd.expiresInSeconds);
     }
-    r.details  = detailsOf(root);
-    r.captions = captionsOf(root);
-    return r;
+    if (root.playerConfig && root.playerConfig->mediaCommonConfig
+        && root.playerConfig->mediaCommonConfig->mediaUstreamerRequestConfig)
+        p.sabrConfig =
+            str(root.playerConfig->mediaCommonConfig->mediaUstreamerRequestConfig->videoPlaybackUstreamerConfig);
+    if (root.videoDetails) {
+        const pr::DetailsJ &d = *root.videoDetails;
+        p.details.id = str(d.videoId);
+        p.details.title = str(d.title);
+        p.details.author = str(d.author);
+        p.details.channelId = str(d.channelId);
+        p.details.description = str(d.shortDescription);
+        p.details.lengthSecs = toInt64(d.lengthSeconds);
+        p.details.viewCount = toInt64(d.viewCount);
+        p.details.isLive = d.isLive.value_or(false);
+        p.details.isLiveContent = d.isLiveContent.value_or(false);
+        p.details.isUpcoming = d.isUpcoming.value_or(false);
+        p.details.thumbnailUrl = lastThumbUrl(d.thumbnail);
+        if (p.details.thumbnailUrl.empty() && !p.details.id.empty())
+            p.details.thumbnailUrl = "https://i.ytimg.com/vi/" + p.details.id + "/hqdefault.jpg";
+    }
+    if (root.captions && root.captions->playerCaptionsTracklistRenderer
+        && root.captions->playerCaptionsTracklistRenderer->captionTracks)
+        for (const pr::TrackJ &t : *root.captions->playerCaptionsTracklistRenderer->captionTracks) {
+            CaptionTrack c;
+            c.url = str(t.baseUrl);
+            c.language = str(t.languageCode);
+            c.name = textOf(t.name);
+            c.autoGenerated = str(t.kind) == "asr";
+            c.translatable = t.isTranslatable.value_or(false);
+            if (!c.url.empty()) p.captions.push_back(std::move(c));
+        }
+    if (root.storyboards && root.storyboards->playerStoryboardSpecRenderer)
+        p.storyboardSpec = str(root.storyboards->playerStoryboardSpecRenderer->spec);
+    if (root.playbackTracking) {
+        const pr::TrackingJ &tr = *root.playbackTracking;
+        if (tr.videostatsWatchtimeUrl) p.watchtimeUrl = str(tr.videostatsWatchtimeUrl->baseUrl);
+        if (tr.videostatsPlaybackUrl) p.playbackUrl = str(tr.videostatsPlaybackUrl->baseUrl);
+    }
+    return p;
 }
 
-PlayerResult parsePlayer(std::string_view p)
+std::vector<StoryboardLevel> parseStoryboardSpec(std::string_view spec, int64_t lengthSecs)
 {
-    pj::PlayerRoot root{};
-    (void)glz::read<kIn>(root, p);
-    return parsePlayerRoot(root);
+    std::vector<StoryboardLevel> out;
+    std::vector<std::string_view> parts, f;
+    splitInto(spec, '|', parts);
+    if (parts.size() < 2) return out;
+    for (size_t i = 1; i < parts.size(); ++i) {
+        splitInto(parts[i], '#', f);
+        if (f.size() < 8) continue;
+        int64_t v[6];
+        bool numbers = true;
+        for (int k = 0; k < 6; ++k) numbers = numbers && numberOf(f[k], v[k]);
+        if (!numbers || v[2] <= 0 || v[3] <= 0 || v[4] <= 0) continue;
+        StoryboardLevel l;
+        l.width = (int) v[0];
+        l.height = (int) v[1];
+        l.count = (int) v[2];
+        l.cols = (int) v[3];
+        l.rows = (int) v[4];
+        l.intervalMs = v[5];
+        if (l.intervalMs <= 0 && lengthSecs > 0) l.intervalMs = lengthSecs * 1000 / l.count;
+        std::string url(parts[0]);
+        replaceAll(url, "$L", std::to_string(i - 1));
+        replaceAll(url, "$N", f[6]);                 // a name like "M$M" keeps $M for the sheet
+        url += url.find('?') == std::string::npos ? "?sigh=" : "&sigh=";
+        url += f[7];
+        l.urlTemplate = std::move(url);
+        out.push_back(std::move(l));
+    }
+    return out;
 }
 
-// Whole-document overload: *r.body is NUL-terminated, so read via the sentinel
-// path (kInDoc). Behavior-identical to the string_view form (golden diff gate).
-PlayerResult parsePlayer(const std::string &p)
+std::vector<Cue> parseJson3(const std::string &body)
 {
-    pj::PlayerRoot root{};
-    readJsonDoc(root, p);
-    return parsePlayerRoot(root);
+    pr::Json3Root root{};
+    readJsonDoc(root, body);
+    std::vector<Cue> out;
+    if (!root.events) return out;
+    for (const pr::Json3Event &e : *root.events) {
+        if (!e.segs) continue;                        // window/pen definitions
+        std::string text;
+        for (const pr::Json3Seg &s : *e.segs) if (s.utf8) text += *s.utf8;
+        if (text.find_first_not_of(" \n") == std::string::npos) continue;   // ASR line-append
+        Cue c;
+        c.startMs = toInt64(e.tStartMs);
+        c.endMs = c.startMs + toInt64(e.dDurationMs);
+        c.text = std::move(text);
+        out.push_back(std::move(c));
+    }
+    return out;
 }
 
-// ---------------------------------------------------------------------------
-// Public entry points — thin wrappers, each does its own single read
-// ---------------------------------------------------------------------------
-
-bool isPlayable(std::string_view p, std::string *reason)
-{
-    pj::PlayerRoot root{};
-    (void)glz::read<kIn>(root, p);
-    return playableOf(root, reason);
-}
-bool isPlayable(const std::string &p, std::string *reason)
-{
-    pj::PlayerRoot root{};
-    readJsonDoc(root, p);
-    return playableOf(root, reason);
-}
-
-std::vector<Stream> parseStreams(std::string_view p, bool *sawCipheredOnly)
-{
-    pj::PlayerRoot root{};
-    (void)glz::read<kIn>(root, p);
-    return streamsOf(root, sawCipheredOnly);
-}
-std::vector<Stream> parseStreams(const std::string &p, bool *sawCipheredOnly)
-{
-    pj::PlayerRoot root{};
-    readJsonDoc(root, p);
-    return streamsOf(root, sawCipheredOnly);
-}
-
-Video parseVideoDetails(std::string_view p)
-{
-    pj::PlayerRoot root{};
-    (void)glz::read<kIn>(root, p);
-    return detailsOf(root);
-}
-Video parseVideoDetails(const std::string &p)
-{
-    pj::PlayerRoot root{};
-    readJsonDoc(root, p);
-    return detailsOf(root);
-}
-
-std::vector<Subtitle> parseCaptions(std::string_view p)
-{
-    pj::PlayerRoot root{};
-    (void)glz::read<kIn>(root, p);
-    return captionsOf(root);
-}
-std::vector<Subtitle> parseCaptions(const std::string &p)
-{
-    pj::PlayerRoot root{};
-    readJsonDoc(root, p);
-    return captionsOf(root);
-}
 }

@@ -2,6 +2,7 @@
 // tst_meetube_parsers: same fixtures, same expected values; CT:: field renames per
 // include/yt/types.h).
 #include <doctest/doctest.h>
+#include "innertube/playerjs.h"
 #include "parsers/continuation.h"
 #include "json/ytjson.h"
 #include "parsers/rendererparser.h"
@@ -207,47 +208,6 @@ TEST_CASE("lockupRelatedParses") {
     CHECK(v[0].viewText.find("views") != std::string::npos);
     CHECK(v[0].date.find("ago") != std::string::npos);
 }
-TEST_CASE("streams") {
-    const std::string p = loadFixtureRaw("player_ios.json");
-    std::vector<Stream> s = parseStreams(p);
-    REQUIRE(s.size() == 6);
-    CHECK(s[0].id == "hls");
-    CHECK(s[0].url.find("index.m3u8") != std::string::npos);
-    CHECK(s[0].hasAudio);
-    Stream m18, m137, a140, a251;
-    for (const Stream &x : s) {
-        if (x.id == "18")  m18  = x;
-        if (x.id == "137") m137 = x;
-        if (x.id == "140") a140 = x;
-        if (x.id == "251") a251 = x;
-    }
-    CHECK(m18.height == 360);
-    CHECK((m18.width > 0 && m18.hasAudio));
-    CHECK(m137.height == 1080);
-    CHECK((m137.width > 0 && !m137.hasAudio));
-    CHECK(m137.url == "https://gv.example/vid137");
-    CHECK((a140.width == 0 && a140.hasAudio));
-    CHECK(a140.url == "https://gv.example/aud140");
-    CHECK((a251.width == 0 && a251.hasAudio));
-}
-TEST_CASE("videoDetails") {
-    const std::string p = loadFixtureRaw("player_ios.json");
-    Video v = parseVideoDetails(p);
-    CHECK(v.id == "aaa11111111");
-    CHECK(v.title == "First Video");
-    CHECK(v.channelName == "Chan A");
-    CHECK(v.channelId == "UCxxxx");
-    CHECK(v.viewCount == 1234);
-    CHECK(v.description == "hello");
-    CHECK(!v.thumbnailUrl.empty());
-}
-TEST_CASE("captions") {
-    const std::string p = loadFixtureRaw("player_ios.json");
-    std::vector<Subtitle> c = parseCaptions(p);
-    REQUIRE(c.size() == 2);
-    CHECK(c[0].language == "en");
-    CHECK(c[0].url.find("timedtext") != std::string::npos);
-}
 TEST_CASE("comments") {
     const std::string p = loadFixtureRaw("comments_page.json");
     std::string token;
@@ -296,12 +256,6 @@ TEST_CASE("parsesTileRenderers") {
     CHECK(v[1].title == "Second Video");
     CHECK(v[1].channelName == "Channel B");
 }
-TEST_CASE("isPlayableStatus") {
-    CHECK(isPlayable(std::string(payloads::kPlayableOk), nullptr));
-    std::string reason;
-    CHECK_FALSE(isPlayable(std::string(payloads::kPlayableLogin), &reason));
-    CHECK(reason.find("LOGIN_REQUIRED") != std::string::npos);
-}
 // Security review: AccountItemCollector re-scans every captured accountItem with a
 // fresh depth counter, so a chain of nested "accountItem" keys defeated the scanner's
 // depth cap and recursed once per level — a crafted accounts_list overflowed the stack.
@@ -314,4 +268,213 @@ TEST_CASE("accountsListNestedItemsDepthBounded") {
     for (int i = 0; i < n; ++i) deep += "}";
     const Account a = parseAccountsList(deep);   // must return, not overflow the stack
     CHECK(a.name.empty());
+}
+
+TEST_CASE("base64Decode") {
+    std::string o;
+    CHECK(gj::base64Decode("aGVsbG8=", &o));
+    CHECK(o == "hello");
+    CHECK(gj::base64Decode("aGVsbG8", &o));          // padding is optional (xtags omit it)
+    CHECK(o == "hello");
+    CHECK(gj::base64Decode("-_8", &o));              // base64url alphabet
+    CHECK(o == "\xfb\xff");
+    CHECK(gj::base64Decode("+/8=", &o));             // classic alphabet, same bytes
+    CHECK(o == "\xfb\xff");
+    CHECK(gj::base64Decode("", &o));
+    CHECK(o.empty());
+    CHECK_FALSE(gj::base64Decode("aGV*bG8=", &o));   // foreign byte
+    CHECK(o.empty());
+    CHECK_FALSE(gj::base64Decode("aGVsb", &o));      // one stray sextet carries no byte
+    CHECK(o.empty());
+}
+
+// ---- /player (parsePlayerResponse) ----
+TEST_CASE("playerResponseVisionos") {
+    const PlayerPart p = parsePlayerResponse(loadFixtureRaw("player_visionos_ok.json"));
+    CHECK(p.status.kind == Playability::Ok);
+    CHECK_FALSE(p.final);
+    REQUIRE(p.formats.size() == 4);
+    const Format &v = p.formats[0];
+    CHECK(v.itag == 137);
+    CHECK(v.url == "https://rr.example/videoplayback?itag=137&c=VISIONOS");
+    CHECK(v.mimeType == "video/mp4");
+    CHECK(v.codecs == "avc1.640028");
+    CHECK(v.qualityLabel == "1080p");
+    CHECK(v.width == 1920);
+    CHECK(v.height == 1080);
+    CHECK(v.fps == 25);
+    CHECK(v.bitrate == 4334157);
+    CHECK(v.averageBitrate == 3038377);
+    CHECK(v.contentLength == 80911999);
+    CHECK(v.durationMs == 213040);
+    REQUIRE(v.initRange.has_value());
+    CHECK(v.initRange->first == 0);
+    CHECK(v.initRange->last == 741);
+    REQUIRE(v.indexRange.has_value());
+    CHECK(v.indexRange->first == 742);
+    CHECK(v.lastModified == 1766957926174250LL);
+    CHECK((v.hasVideo && !v.hasAudio));
+    CHECK_FALSE(v.audio.has_value());
+    CHECK_FALSE(v.sealed);
+    const Format &a = p.formats[2];
+    CHECK((a.hasAudio && !a.hasVideo));
+    CHECK(a.codecs == "mp4a.40.2");
+    CHECK(p.formats[3].codecs == "opus");
+    CHECK(p.hlsUrl == "https://manifest.example/hls_variant/VISIONOS/index.m3u8");
+    CHECK(p.sabrUrl == "https://rr.example/videoplayback?sabr=1&c=VISIONOS");
+    CHECK(p.sabrConfig == "CgUSA2FiYw");
+    CHECK(p.expiresInSecs == 21540);
+    REQUIRE(p.captions.size() == 2);
+    CHECK(p.captions[0].language == "en");
+    CHECK(p.captions[0].name == "English");
+    CHECK(p.captions[0].translatable);
+    CHECK_FALSE(p.captions[0].autoGenerated);
+    CHECK(p.captions[1].autoGenerated);
+    CHECK(p.captions[1].url.find("kind=asr") != std::string::npos);
+    CHECK(p.storyboardSpec.find("storyboard3_L$L") != std::string::npos);
+    CHECK(p.watchtimeUrl == "https://s.youtube.com/api/stats/watchtime?cl=1&docid=dQw4w9WgXcQ&ei=EI&c=VISIONOS");
+    CHECK(p.playbackUrl.find("/api/stats/playback") != std::string::npos);
+    CHECK(p.details.id == "dQw4w9WgXcQ");
+    CHECK(p.details.author == "Rick Astley");
+    CHECK(p.details.channelId == "UCuAXFkgsw1L7xaCfnd5JJOw");
+    CHECK(p.details.lengthSecs == 213);
+    CHECK(p.details.viewCount == 1826490705LL);
+    CHECK(p.details.thumbnailUrl == "https://i.ytimg.com/vi/dQw4w9WgXcQ/hq720.jpg");
+}
+TEST_CASE("playerResponseProgressiveFromFormats") {
+    const PlayerPart p = parsePlayerResponse(loadFixtureRaw("player_vr_ok.json"));
+    REQUIRE(p.formats.size() == 3);
+    CHECK(p.formats[0].itag == 18);
+    CHECK((p.formats[0].hasVideo && p.formats[0].hasAudio));   // formats[] are muxed
+    CHECK(p.formats[0].codecs == "avc1.42001E, mp4a.40.2");
+    CHECK(p.hlsUrl.empty());
+}
+TEST_CASE("playerResponseAudioTracks") {
+    const PlayerPart p = parsePlayerResponse(loadFixtureRaw("player_visionos_dubbed.json"));
+    REQUIRE(p.formats.size() == 3);
+    REQUIRE(p.formats[1].audio.has_value());
+    const AudioTrack &ru = *p.formats[1].audio;
+    CHECK(ru.id == "ru.3");
+    CHECK(ru.name == "Russian");
+    CHECK(ru.language == "ru");
+    CHECK_FALSE(ru.isDefault);
+    CHECK_FALSE(ru.original);                         // xtags: acont=dubbed
+    CHECK_FALSE(ru.autoDubbed);
+    REQUIRE(p.formats[2].audio.has_value());
+    const AudioTrack &en = *p.formats[2].audio;
+    CHECK(en.language == "en-US");
+    CHECK(en.isDefault);
+    CHECK(en.original);                               // xtags: acont=original
+    CHECK(p.formats[2].xtags == "ChEKBWFjb250EghvcmlnaW5hbAoNCgRsYW5nEgVlbi1VUw");
+}
+TEST_CASE("playerResponseVerdicts") {
+    PlayerPart p = parsePlayerResponse(loadFixtureRaw("player_botcheck.json"));
+    CHECK(p.status.kind == Playability::BotCheck);
+    CHECK(p.status.status == "LOGIN_REQUIRED");
+    CHECK(p.status.reason.find("not a bot") != std::string::npos);
+    CHECK_FALSE(p.final);
+    p = parsePlayerResponse(loadFixtureRaw("player_removed.json"));
+    CHECK(p.status.kind == Playability::Unplayable);
+    CHECK(p.status.reason == "This video is unavailable");
+    CHECK(p.final);
+    // Review focus: the reason is localized by hl — the verdict must not read it.
+    p = parsePlayerResponse(std::string("{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\","
+        "\"reason\":\"Войдите, чтобы подтвердить, что вы не бот\"}}"));
+    CHECK(p.status.kind == Playability::BotCheck);
+    p = parsePlayerResponse(std::string("{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\","
+        "\"reason\":\"Sign in to confirm your age\",\"desktopLegacyAgeGateReason\":1}}"));
+    CHECK(p.status.kind == Playability::AgeRestricted);
+    p = parsePlayerResponse(std::string("{\"playabilityStatus\":{\"status\":\"AGE_CHECK_REQUIRED\"}}"));
+    CHECK(p.status.kind == Playability::AgeRestricted);
+    p = parsePlayerResponse(std::string("not json"));
+    CHECK(p.status.kind == Playability::Unknown);
+    CHECK(p.formats.empty());
+}
+TEST_CASE("playerResponseUpcoming") {
+    // Shape per Troubadour (YTApi.m scheduledStartIn): no scheduled stream was at hand to capture.
+    PlayerPart p = parsePlayerResponse(std::string(
+        "{\"playabilityStatus\":{\"status\":\"LIVE_STREAM_OFFLINE\",\"reason\":\"This live event will begin in 3 days.\","
+        "\"liveStreamability\":{\"liveStreamabilityRenderer\":{\"offlineSlate\":{\"liveStreamOfflineSlateRenderer\":"
+        "{\"scheduledStartTime\":\"1792000000\",\"mainText\":{\"runs\":[{\"text\":\"Live in 3 days\"}]},"
+        "\"subtitleText\":{\"simpleText\":\"October 13, 8:00 PM\"}}}}}}}"));
+    CHECK(p.status.kind == Playability::Upcoming);
+    CHECK(p.status.scheduledStartSecs == 1792000000LL);
+    CHECK(p.status.slateText == "Live in 3 days\nOctober 13, 8:00 PM");
+    CHECK(p.final);
+    // No slate: the microformat's ISO time (with its zone) is the fallback.
+    p = parsePlayerResponse(std::string(
+        "{\"playabilityStatus\":{\"status\":\"LIVE_STREAM_OFFLINE\"},\"microformat\":{\"playerMicroformatRenderer\":"
+        "{\"liveBroadcastDetails\":{\"startTimestamp\":\"2026-09-09T20:00:00+03:00\"}}}}"));
+    CHECK(p.status.kind == Playability::Upcoming);
+    CHECK(p.status.scheduledStartSecs == 1788973200LL);
+    p = parsePlayerResponse(std::string("{\"playabilityStatus\":{\"status\":\"LIVE_STREAM_OFFLINE\"}}"));
+    CHECK(p.status.kind == Playability::LiveOffline);
+    CHECK(p.final);
+}
+TEST_CASE("playerResponseSealedFormat") {
+    const PlayerPart p = parsePlayerResponse(std::string(
+        "{\"playabilityStatus\":{\"status\":\"OK\"},\"streamingData\":{\"formats\":[{\"itag\":18,"
+        "\"mimeType\":\"video/mp4\",\"signatureCipher\":\"s=AB&sp=sig&url=https%3A%2F%2Fx\"}]}}"));
+    REQUIRE(p.formats.size() == 1);
+    CHECK(p.formats[0].sealed);
+    CHECK(p.formats[0].url.empty());
+}
+// The slate search walks the whole answer: it must stay bounded like every scan.
+TEST_CASE("playerResponseSlateScanDepthBounded") {
+    const int n = 200000;
+    std::string deep = "{\"playabilityStatus\":{\"status\":\"LIVE_STREAM_OFFLINE\"},\"x\":";
+    for (int i = 0; i < n; ++i) deep += "{\"a\":";
+    deep += "{}";
+    for (int i = 0; i < n; ++i) deep += "}";
+    deep += "}";
+    const PlayerPart p = parsePlayerResponse(deep);   // must return, not overflow the stack
+    CHECK(p.status.kind == Playability::LiveOffline);
+}
+TEST_CASE("storyboardSpec") {
+    const PlayerPart p = parsePlayerResponse(loadFixtureRaw("player_visionos_ok.json"));
+    const std::vector<StoryboardLevel> l = parseStoryboardSpec(p.storyboardSpec, 213);
+    REQUIRE(l.size() == 2);
+    CHECK(l[0].urlTemplate == "https://i.ytimg.com/sb/dQw4w9WgXcQ/storyboard3_L0/default.jpg?sqp=SQP&sigh=rs$SIGH0");
+    CHECK(l[0].width == 48);
+    CHECK(l[0].height == 27);
+    CHECK(l[0].count == 100);
+    CHECK(l[0].intervalMs == 2130);                   // 0 in the spec: length / count
+    CHECK(l[1].urlTemplate == "https://i.ytimg.com/sb/dQw4w9WgXcQ/storyboard3_L1/M$M.jpg?sqp=SQP&sigh=rs$SIGH1");
+    CHECK(l[1].count == 108);
+    CHECK(l[1].cols == 10);
+    CHECK(l[1].rows == 10);
+    CHECK(l[1].intervalMs == 2000);
+    CHECK(parseStoryboardSpec("", 10).empty());
+    CHECK(parseStoryboardSpec("https://x/$L/$N.jpg|1#2", 10).empty());   // a short level is skipped
+    CHECK(parseStoryboardSpec("https://x/$L/$N.jpg|a#b#c#d#e#f#g#h", 10).empty());
+}
+TEST_CASE("json3Cues") {
+    std::vector<Cue> c = parseJson3(loadFixtureRaw("captions_manual.json3"));
+    REQUIRE(c.size() == 3);
+    CHECK(c[0].startMs == 1360);
+    CHECK(c[0].endMs == 3040);
+    CHECK(c[0].text == "[♪♪♪]");
+    CHECK(c[2].text == "♪ You know the rules\nand so do I ♪");
+    c = parseJson3(loadFixtureRaw("captions_asr.json3"));
+    REQUIRE(c.size() == 2);                           // the window event and the "\n" append are not cues
+    CHECK(c[0].text == "[Music]");
+    CHECK(c[1].text == "We're no strangers to");
+    CHECK(c[1].startMs == 18800);
+    CHECK(c[1].endMs == 25960);
+    CHECK(parseJson3("").empty());
+    CHECK(parseJson3("<html>Sorry</html>").empty());
+}
+
+// The /tv page (TV UA, 2026-10-14) names the build as ".../s/player/22cb88bc/tv-player-ias…";
+// base.js carries "signatureTimestamp:20737".
+TEST_CASE("playerJsScans") {
+    CHECK(playerIdIn("<script src=\"/s/player/22cb88bc/tv-player-ias.vflset/tv-player-ias.js\">") == "22cb88bc");
+    CHECK(playerIdIn("\"jsUrl\":\"\\/s\\/player\\/22cb88bc\\/tv-player-ias.vflset\\/x.js\"") == "22cb88bc");
+    CHECK(playerIdIn("<html>no player here</html>").empty());
+    CHECK(playerIdIn("/s/player/bad\"id/x.js").empty());
+    CHECK(playerScriptUrl("22cb88bc") == "https://www.youtube.com/s/player/22cb88bc/player_ias.vflset/en_US/base.js");
+    CHECK(signatureTimestampIn("var a={signatureTimestamp:20737,b:1}") == 20737);
+    CHECK(signatureTimestampIn("\"signatureTimestamp\": 20737") == 20737);
+    CHECK(signatureTimestampIn("x.signatureTimestamp=y; z={signatureTimestamp:19999}") == 19999);
+    CHECK(signatureTimestampIn("nothing") == 0);
 }

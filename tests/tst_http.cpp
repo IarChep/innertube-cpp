@@ -467,3 +467,67 @@ TEST_CASE("coalescedWaiterKeepsItsOwnTimeout") {
     CHECK(f.ft.canceled.size() == 1);
     CHECK(f.ft.started.size() == 1);
 }
+
+// The /tv page, base.js and QR images are not JSON: the envelope check must not refuse
+// them, but an error status must still fail instead of reaching a byte scanner.
+TEST_CASE("fetchDeliversRawBodies") {
+    Fx f; f.ft.script("https://yt.test/tv", ok("<html>/s/player/abc/</html>"));
+    Got g;
+    f.h().fetch("https://yt.test/tv", {{"User-Agent", "TV-UA"}}, yt::core::newJob(), rec(g));
+    f.pump();
+    CHECK(g.calls == 1);
+    CHECK(g.r.ok);
+    CHECK(*g.r.body == "<html>/s/player/abc/</html>");
+    REQUIRE(f.ft.started.size() == 1);
+    CHECK(f.ft.started[0].method == yt::HttpRequest::Method::Get);
+    REQUIRE(header(f.ft.started[0], "User-Agent") != nullptr);
+    CHECK(header(f.ft.started[0], "User-Agent")->value == "TV-UA");
+}
+TEST_CASE("fetchNon2xxFails") {
+    Fx f; f.ft.script("https://yt.test/api/timedtext", ok("<html>Sorry</html>", 429));
+    Got g;
+    f.h().fetch("https://yt.test/api/timedtext?v=1&fmt=json3", {}, yt::core::newJob(), rec(g));
+    f.pump();
+    CHECK_FALSE(g.r.ok);
+    CHECK(g.r.code == ErrorCode::Api);
+    CHECK(g.r.httpStatus == 429);
+}
+TEST_CASE("fetchCoalescesIdenticalUrls") {
+    Fx f; f.ft.script("https://yt.test/s/player/p1/base.js", ok("signatureTimestamp:1"));
+    Got a, b;
+    f.h().fetch("https://yt.test/s/player/p1/base.js", {}, yt::core::newJob(), rec(a));
+    f.h().fetch("https://yt.test/s/player/p1/base.js", {}, yt::core::newJob(), rec(b));
+    f.pump();
+    CHECK(f.ft.started.size() == 1);                 // two walks, one 3 MB download
+    CHECK(a.r.ok);
+    CHECK(b.r.ok);
+}
+TEST_CASE("resetVisitorDataRebuildsTheContext") {
+    Fx f;
+    f.ft.script(kBrowse, ok("{\"responseContext\":{\"visitorData\":\"OLD\"}}"));
+    f.ft.script(kBrowse, ok("{}"));
+    std::vector<std::string> sunk;
+    f.h().setVisitorSink([&](const std::string &v) { sunk.push_back(v); });
+    Got a, b;
+    f.h().post("browse", ClientId::WEB, "{\"browseId\":\"A\"}", yt::core::newJob(), rec(a));
+    f.pump();
+    REQUIRE(f.h().session().visitorData == "OLD");
+    f.h().resetVisitorData();
+    CHECK(f.h().session().visitorData.empty());
+    f.h().post("browse", ClientId::WEB, "{\"browseId\":\"B\"}", yt::core::newJob(), rec(b));
+    f.pump();
+    REQUIRE(f.ft.started.size() == 2);
+    CHECK(f.ft.started[1].body.find("visitorData") == std::string::npos);
+    CHECK(header(f.ft.started[1], "X-Goog-Visitor-Id") == nullptr);
+    CHECK(sunk == std::vector<std::string>{"OLD", ""});
+}
+TEST_CASE("setPlayerJsReachesTheSink") {
+    Fx f;
+    std::string id; int sts = 0;
+    f.h().setPlayerJsSink([&](const std::string &i, int s) { id = i; sts = s; });
+    f.h().setPlayerJs("22cb88bc", 20737);
+    CHECK(f.h().session().playerId == "22cb88bc");
+    CHECK(f.h().session().signatureTimestamp == 20737);
+    CHECK(id == "22cb88bc");
+    CHECK(sts == 20737);
+}

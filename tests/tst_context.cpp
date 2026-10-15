@@ -89,3 +89,23 @@ TEST_CASE("SessionState defaults") {
     CHECK(st.hl == "en"); CHECK(st.gl == "US");
     CHECK(st.refreshToken.empty()); CHECK_FALSE(st.account.has_value());
 }
+// VISIONOS is the JS-less /player client whose sessions are not cut at ~60 s; it needs
+// the session visitorData (else LOGIN_REQUIRED) and repeats its UA inside the context.
+TEST_CASE("visionosContext") {
+    Session s; s.visitorData = "VD";
+    const std::string c = ContextBuilder::contextJson(ClientId::VISIONOS, s);
+    CHECK(has(c, "\"clientName\":\"VISIONOS\""));
+    CHECK(has(c, "\"clientVersion\":\"1.02\""));
+    CHECK(has(c, "\"deviceMake\":\"Apple\""));
+    CHECK(has(c, "\"deviceModel\":\"RealityDevice14,1\""));
+    CHECK(has(c, "\"osName\":\"visionOS\""));
+    CHECK(has(c, "\"osVersion\":\"1.0.2.21O209\""));
+    CHECK(has(c, "\"visitorData\":\"VD\""));
+    CHECK(has(c, "\"userAgent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3)"));
+    CHECK_FALSE(has(ContextBuilder::contextJson(ClientId::ANDROID_VR, s), "\"userAgent\""));
+    const std::vector<Header> h = ContextBuilder::headers(ClientId::VISIONOS, s);
+    REQUIRE(find(h, "X-YouTube-Client-Name") != nullptr);
+    CHECK(find(h, "X-YouTube-Client-Name")->value == "101");
+    REQUIRE(find(h, "X-Goog-Visitor-Id") != nullptr);
+    CHECK(find(h, "Authorization") == nullptr);
+}

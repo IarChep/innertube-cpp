@@ -53,3 +53,25 @@ TEST_CASE("status >= 400 fails with httpStatus, body kept; forms and gets record
     CHECK(g.ok); CHECK(f.lastGetUrl() == "https://ryd.test/votes?videoId=x");
     f.setBearer("B"); CHECK(f.session().bearer == "B");
 }
+TEST_CASE("fake adopts a queued visitorData on delivery") {
+    FakeHttp t;
+    t.queue("player", "{}", 200, "VD1");
+    t.queue("player", "{}", 200, "VD2");
+    int calls = 0;
+    t.post("player", yt::ClientId::WEB, "{}", yt::core::newJob(), [&](const Reply &) { ++calls; });
+    t.post("player", yt::ClientId::VISIONOS, "{}", yt::core::newJob(), [&](const Reply &) { ++calls; });
+    t.flush();
+    CHECK(calls == 2);
+    CHECK(t.session().visitorData == "VD1");          // only an empty identity is seeded
+    CHECK(t.sentClients == std::vector<int>{(int) yt::ClientId::WEB, (int) yt::ClientId::VISIONOS});
+}
+TEST_CASE("fake fetch replies from the url queue") {
+    FakeHttp t;
+    t.queue("https://www.youtube.com/tv", "<html></html>");
+    Reply got;
+    t.fetch("https://www.youtube.com/tv", {{"User-Agent", "UA"}}, yt::core::newJob(), [&](const Reply &r) { got = r; });
+    t.flush();
+    CHECK(got.ok);
+    REQUIRE(t.fetched.size() == 1);
+    CHECK(t.fetched[0].headers[0].value == "UA");
+}

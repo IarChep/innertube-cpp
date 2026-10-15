@@ -7,10 +7,12 @@
 #include "core/pct.h"
 #include "core/session.h"
 #include "innertube/clientconfig.h"
+#include "innertube/contextbuilder.h"
 #include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 namespace yt::core {
 
 // One finished request. body is never null and stays populated on !ok (OAuth reads
@@ -34,6 +36,14 @@ public:
     virtual void post(std::string_view endpoint, ClientId, std::string bodyJson, const JobToken &, HttpFn) = 0;
     virtual void postForm(std::string url, Form fields, const JobToken &, HttpFn) = 0;
     virtual void get(std::string url, const JobToken &, HttpFn) = 0;
+    // Raw GET for non-JSON resources (the /tv page, base.js, a QR image, json3): no
+    // envelope check, but a non-2xx answer still fails. Identical (url, headers) requests
+    // in flight are coalesced. `headers` must not carry credentials.
+    virtual void fetch(std::string url, std::vector<Header> headers, const JobToken &, HttpFn) = 0;
+    // Drops the visitorData a bot check flagged; the next youtubei reply seeds a fresh one.
+    virtual void resetVisitorData() = 0;
+    // Adopts the base.js identity (persisted by the engine like visitorData).
+    virtual void setPlayerJs(std::string playerId, int signatureTimestamp) = 0;
     // Drop `job`'s waiters; cancel exchanges left without any. Call after canceling the token.
     virtual void abort(const JobToken &) = 0;
     // Read freely; mutate only hl/gl/visitorData and then clearCache() (memoized context).

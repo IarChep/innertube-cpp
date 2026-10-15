@@ -64,9 +64,19 @@ void Engine::startSignIn(const std::shared_ptr<JobHandle> &h, std::function<void
         pollIntervalSecs = r.value.intervalSecs > 0 ? r.value.intervalSecs : 5;
         signInDeadline = now() + std::chrono::seconds(r.value.expiresInSecs > 0 ? r.value.expiresInSecs
                                                                                  : kDefaultDeviceCodeSecs);
-        DeviceCode dc{r.value.verificationUrl, r.value.userCode, pollIntervalSecs};
-        deliver(h, [onCode, dc]() { onCode(dc); }, /*final*/ false);
+        DeviceCode dc;
+        dc.verificationUrl = r.value.verificationUrl;
+        dc.userCode = r.value.userCode;
+        dc.intervalSecs = pollIntervalSecs;
+        dc.expiresInSecs = r.value.expiresInSecs;
+        // Polling starts now: the QR request must not eat into the code's lifetime.
         pollTimer = loop.after(pollIntervalSecs * 1000, [this, h, onDone]() { pollTimer = 0; pollToken(h, onDone); });
+        core::fetchSignInQr(*http, dc.userCode, h->token, [this, h, onCode, dc](const Result<std::string> &qr) {
+            if (signInJob != h) return;              // finished or superseded meanwhile
+            DeviceCode withQr = dc;
+            if (qr.ok()) withQr.qrPng = qr.value;
+            deliver(h, [onCode, withQr]() { onCode(withQr); }, /*final*/ false);
+        });
     });
 }
 

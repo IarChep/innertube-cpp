@@ -10,6 +10,8 @@ struct Session {
     std::string hl = "en";
     std::string gl = "US";
     std::string bearer;   // OAuth access token; rides TVHTML5 only
+    std::string playerId;            // the base.js build the /tv page names
+    int signatureTimestamp = 0;      // that build's sts (TV /player needs it); 0 = unknown
     ClientTable clients = defaultClientTable();   // per-client identity (overridable)
 };
 }

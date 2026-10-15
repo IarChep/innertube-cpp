@@ -29,6 +29,11 @@ namespace Catalog {
     static const char *const kOAuthScope        = "http://gdata.youtube.com https://www.googleapis.com/auth/youtube-paid-content";
     static const char *const kDeviceCodeUrl     = "https://www.youtube.com/o/oauth2/device/code";
     static const char *const kTokenUrl          = "https://oauth2.googleapis.com/token";
+    // The TV app page names the live player build (/s/player/<id>/…); its player_ias
+    // base.js carries the signatureTimestamp the TV /player needs. Fetched with the TV UA.
+    static const char *const kTvPageUrl = "https://www.youtube.com/tv";
+    // The QR the TV app shows next to the code (mdx/handoff, youtube_uwp TvSignInClient).
+    static const char *const kQrPresetStyle = "HANDOFF_QR_LIMITED_PRESET_STYLE_MODERN_BIG_DOTS_INVERT_WITH_YT_LOGO";
 }
 }
 #endif

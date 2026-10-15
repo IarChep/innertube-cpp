@@ -15,6 +15,7 @@
 #include <yt/auth.h>
 #include <yt/catalog.h>
 #include <yt/log.h>
+#include <yt/player.h>
 #include <yt/result.h>
 #include <yt/session.h>
 #include <yt/transport.h>
@@ -72,7 +73,11 @@ public:
     Job search(SearchRequest request, Callback<VideoPage> done);
     Job watch(std::string videoId, Callback<WatchResult> done);
     Job comments(std::string videoId, std::string page, Callback<CommentPage> done);
-    Job player(std::string videoId, std::function<void(const PlayerInfo &)> done);
+    // Every source YouTube serves for the video (see yt/player.h); request.want limits the
+    // walk to the kinds the consumer can play.
+    Job player(PlayerRequest request, Callback<Player> done);
+    // One caption track (from Player::captions) as timed cues.
+    Job captions(CaptionTrack track, Callback<std::vector<Cue>> done);
     Job channel(std::string channelId, Callback<Channel> done);
     Job channelByUrl(std::string url, Callback<Channel> done);
     Job channelSubscribed(std::string channelId, Callback<bool> done);

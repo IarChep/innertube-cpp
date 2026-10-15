@@ -5,7 +5,7 @@
 // the body cap, timeouts, cancellation and late/foreign-thread callbacks. On top:
 // the InnerTube transport policy carried over from MeeTube's core::Http — context
 // splice, request coalescing, per-endpoint TTL cache, single envelope scan,
-// visitorData capture, memoized per-client context/headers.
+// visitorData capture, raw (non-JSON) fetches, memoized per-client context/headers.
 #ifndef YT_NET_HTTPCLIENT_H
 #define YT_NET_HTTPCLIENT_H
 #include "core/ihttp.h"
@@ -40,10 +40,15 @@ public:
 
     // Called on the engine thread when the server-issued visitorData is first adopted.
     void setVisitorSink(std::function<void(const std::string &)> sink) { m_visitorSink = std::move(sink); }
+    // Called on the engine thread when a new base.js identity is adopted.
+    void setPlayerJsSink(std::function<void(const std::string &, int)> sink) { m_playerJsSink = std::move(sink); }
 
     void post(std::string_view endpoint, ClientId, std::string bodyJson, const core::JobToken &, core::HttpFn) override;
     void postForm(std::string url, core::Form fields, const core::JobToken &, core::HttpFn) override;
     void get(std::string url, const core::JobToken &, core::HttpFn) override;
+    void fetch(std::string url, std::vector<Header> headers, const core::JobToken &, core::HttpFn) override;
+    void resetVisitorData() override;
+    void setPlayerJs(std::string playerId, int signatureTimestamp) override;
     void abort(const core::JobToken &) override;
     Session &session() override { return m_session; }
     void clearCache() override;
@@ -76,13 +81,14 @@ private:
     HttpOptions m_opts;
     Session m_session;
     std::function<void(const std::string &)> m_visitorSink;
+    std::function<void(const std::string &, int)> m_playerJsSink;
     std::shared_ptr<char> m_life = std::make_shared<char>(0);   // weak-captured by posted closures
     uint64_t m_gen = 0;                                         // identity generation (bumped by clearCache)
     std::vector<std::shared_ptr<Exchange>> m_exchanges;         // in flight
     std::unordered_map<std::string, std::weak_ptr<Exchange>> m_inflightByKey;   // coalescing
     std::unordered_map<std::string, CacheEntry> m_cache;
     std::deque<std::string> m_cacheOrder;                       // FIFO bound
-    static constexpr int kClientCount = 6;                      // ClientId enum size
+    static constexpr int kClientCount = kClientIdCount;
     std::string m_ctxCache[kClientCount];
     std::vector<HttpHeader> m_hdrCache[kClientCount];
     bool m_ctxValid[kClientCount] = {};

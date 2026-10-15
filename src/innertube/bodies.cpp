@@ -1,4 +1,5 @@
 #include "bodies.h"
+#include "innertube/catalog.h"
 #include "json/ytjson.h"
 
 namespace yt {
@@ -23,8 +24,7 @@ struct Next {
 };
 struct ContentPlaybackContext {
     std::string html5Preference = "HTML5_PREF_WANTS";
-    // signatureTimestamp (from base.js, regex) goes here once player-JS handling exists;
-    // omitted (nullopt) until then.
+    // From base.js (innertube/playerjs.*); omitted while unknown.
     std::optional<int> signatureTimestamp;
 };
 struct PlaybackContext {
@@ -34,6 +34,7 @@ struct Player {
     std::string videoId;
     bool contentCheckOk = true;
     bool racyCheckOk = true;
+    std::optional<std::string> cpn;
     std::optional<PlaybackContext> playbackContext;   // TVHTML5 only (else "reloaded")
 };
 struct Resolve {
@@ -66,6 +67,18 @@ struct EditAction {
 struct EditPlaylist {
     std::string playlistId;
     std::vector<EditAction> actions;
+};
+
+struct RapidQr {
+    std::string qrPresetStyle = Catalog::kQrPresetStyle;
+    std::string userCode;
+    std::string rapidQrFeature = "RAPID_QR_FEATURE_DEFAULT";
+};
+struct HandoffQr {
+    RapidQr rapidQrParams;
+};
+struct Mdx {
+    HandoffQr handoffQrParams;
 };
 
 } // namespace bj
@@ -117,11 +130,16 @@ std::string nextContinuation(std::string_view token)
     return dump(b);
 }
 
-std::string player(std::string_view videoId, bool withPlaybackContext)
+std::string player(std::string_view videoId, const PlayerBody &pb)
 {
     bj::Player b;
     b.videoId = std::string(videoId);
-    if (withPlaybackContext) b.playbackContext = bj::PlaybackContext{};
+    if (pb.tv) {
+        b.cpn = pb.cpn;
+        b.playbackContext = bj::PlaybackContext{};
+        if (pb.signatureTimestamp > 0)
+            b.playbackContext->contentPlaybackContext.signatureTimestamp = pb.signatureTimestamp;
+    }
     return dump(b);
 }
 
@@ -172,6 +190,13 @@ std::string editPlaylist(std::string_view playlistId, bool add, std::string_view
     bj::EditPlaylist b;
     b.playlistId = std::string(playlistId);
     b.actions.push_back(a);
+    return dump(b);
+}
+
+std::string mdxHandoff(std::string_view userCode)
+{
+    bj::Mdx b;
+    b.handoffQrParams.rapidQrParams.userCode = std::string(userCode);
     return dump(b);
 }
 

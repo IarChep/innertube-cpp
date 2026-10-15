@@ -13,14 +13,19 @@ namespace yt {
 class Job;
 namespace detail { struct Engine; }
 
-struct DeviceCode { std::string verificationUrl, userCode; int intervalSecs = 5; };
+struct DeviceCode {
+    std::string verificationUrl, userCode;
+    int intervalSecs = 5;
+    int expiresInSecs = 0;                 // the code's lifetime (0 = not reported)
+    std::string qrPng;                     // YouTube's own QR (PNG bytes); empty if it could not be had
+};
 
 class Auth {
 public:
-    // Requests a device code and reports it via onCode (show it, and/or a QR of the
-    // URL), then polls at the server's interval until the user authorizes on another
-    // device (onDone ok), denies / the code expires (onDone error), or the Job is
-    // canceled (no further callbacks). Starting a new sign-in cancels a pending one.
+    // Requests a device code and reports it via onCode (show the code and/or the QR
+    // image; reported once, after the QR request), then polls at the server's interval
+    // until the user authorizes on another device (onDone ok), denies / the code expires
+    // (onDone error), or the Job is canceled (no further callbacks). Starting a new sign-in cancels a pending one.
     Job signIn(std::function<void(const DeviceCode &)> onCode, Callback<Done> onDone);
     void signOut();                        // drops the tokens; onStateChanged reports it
     bool signedIn() const;                 // a refresh token is held (any thread)

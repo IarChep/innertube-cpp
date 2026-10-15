@@ -2,7 +2,7 @@
 // Every call records what it sent and defers its reply; flush() delivers to
 // completion (a callback that posts the next chain step is drained by the same
 // flush()), skipping waiters whose JobToken died — the gate the real HttpClient
-// applies. Queued replies are raw JSON; a queued status >= 400 fails the reply
+// applies. Queued replies are raw bodies (JSON, or HTML/JS for fetch()); a queued status >= 400 fails the reply
 // (code Api, httpStatus kept, body kept); status 0 is a network failure (no body).
 #ifndef IT_FAKEHTTP_H
 #define IT_FAKEHTTP_H
@@ -15,12 +15,18 @@
 
 class FakeHttp : public yt::core::IHttp {
 public:
-    void queue(const std::string &key, std::string body, long status = 200)
+    // `visitor`: the visitorData the reply carries; adopted on delivery when the session
+    // has none (what HttpClient::complete does with responseContext.visitorData).
+    void queue(const std::string &key, std::string body, long status = 200, std::string visitor = "")
     {
-        m_q[key].push_back({std::move(body), status});
+        m_q[key].push_back({std::move(body), status, std::move(visitor)});
     }
     std::vector<std::string> sent;                                   // raw JSON bodies posted
     std::vector<std::pair<std::string, yt::core::Form>> sentForm;    // (url, fields) of postForm
+    std::vector<int> sentClients;                                    // ClientId of every post, in order
+    struct Fetched { std::string url; std::vector<yt::Header> headers; };
+    std::vector<Fetched> fetched;                                    // every fetch(), in order
+    int visitorResets = 0, playerJsSets = 0;
     // The ClientId each endpoint was last posted with (recorded at post() time); -1 if never.
     int lastClientFor(const std::string &endpoint) const
     {
@@ -32,6 +38,7 @@ public:
               const yt::core::JobToken &job, yt::core::HttpFn done) override
     {
         m_lastClient[std::string(endpoint)] = (int) client;
+        sentClients.push_back((int) client);
         sent.push_back(std::move(body));
         enqueue(std::string(endpoint), job, std::move(done));
     }
@@ -56,6 +63,19 @@ public:
         }
         m_pending.push_back({job, std::move(done), r});
     }
+    void fetch(std::string url, std::vector<yt::Header> headers, const yt::core::JobToken &job,
+               yt::core::HttpFn done) override
+    {
+        fetched.push_back({url, std::move(headers)});
+        enqueue(url, job, std::move(done));
+    }
+    void resetVisitorData() override { m_session.visitorData.clear(); ++visitorResets; }
+    void setPlayerJs(std::string id, int sts) override
+    {
+        m_session.playerId = std::move(id);
+        m_session.signatureTimestamp = sts;
+        ++playerJsSets;
+    }
     void abort(const yt::core::JobToken &) override {}              // flush() honours the token gate
     yt::Session &session() override { return m_session; }
     void clearCache() override { ++clearCount; }
@@ -67,10 +87,7 @@ public:
         while (!m_pending.empty()) {
             std::vector<Waiter> batch;
             batch.swap(m_pending);
-            for (Waiter &w : batch) {
-                if (!yt::core::live(w.job)) continue;
-                w.fn(w.reply);
-            }
+            for (Waiter &w : batch) deliver(w);
         }
     }
     // Delivers only the i-th pending reply: lets a test reorder replies in flight.
@@ -78,15 +95,22 @@ public:
     {
         Waiter w = std::move(m_pending.at(i));
         m_pending.erase(m_pending.begin() + (long) i);
-        if (yt::core::live(w.job)) w.fn(w.reply);
+        deliver(w);
     }
     size_t pending() const { return m_pending.size(); }
     bool idle() const { return m_pending.empty(); }
     int clearCount = 0;
 
 private:
-    struct Queued { std::string body; long status; };
+    struct Queued { std::string body; long status; std::string visitor; };
     struct Waiter { yt::core::JobToken job; yt::core::HttpFn fn; yt::core::Reply reply; };
+    void deliver(Waiter &w)
+    {
+        if (!yt::core::live(w.job)) return;
+        if (w.reply.ok && m_session.visitorData.empty() && !w.reply.visitorData.empty())
+            m_session.visitorData = w.reply.visitorData;
+        w.fn(w.reply);
+    }
     void enqueue(const std::string &key, const yt::core::JobToken &job, yt::core::HttpFn done)
     {
         yt::core::Reply r;
@@ -95,6 +119,7 @@ private:
             Queued q = std::move(it->second.front());
             it->second.pop_front();
             r.httpStatus = q.status;
+            r.visitorData = q.visitor;
             r.body = std::make_shared<const std::string>(std::move(q.body));
             if (q.status == 0) { r.code = yt::ErrorCode::Transport; r.error = "network down"; r.body = std::make_shared<const std::string>(); }
             else if (q.status >= 400) { r.code = yt::ErrorCode::Api; r.error = "HTTP " + std::to_string(q.status); }

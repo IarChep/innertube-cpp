@@ -16,9 +16,13 @@ TEST_CASE("next / player / resolve") {
     CHECK(bodies::nextVideo("vid") == "{\"videoId\":\"vid\"}");
     CHECK(bodies::nextContinuation("T") == "{\"continuation\":\"T\"}");
     CHECK(bodies::player("vid") == "{\"videoId\":\"vid\",\"contentCheckOk\":true,\"racyCheckOk\":true}");
-    CHECK(bodies::player("vid", true) ==
-          "{\"videoId\":\"vid\",\"contentCheckOk\":true,\"racyCheckOk\":true,"
+    CHECK(bodies::player("vid", {true, "CPN", 0}) ==
+          "{\"videoId\":\"vid\",\"contentCheckOk\":true,\"racyCheckOk\":true,\"cpn\":\"CPN\","
           "\"playbackContext\":{\"contentPlaybackContext\":{\"html5Preference\":\"HTML5_PREF_WANTS\"}}}");
+    CHECK(bodies::player("vid", {true, "CPN", 20737}) ==
+          "{\"videoId\":\"vid\",\"contentCheckOk\":true,\"racyCheckOk\":true,\"cpn\":\"CPN\","
+          "\"playbackContext\":{\"contentPlaybackContext\":{\"html5Preference\":\"HTML5_PREF_WANTS\","
+          "\"signatureTimestamp\":20737}}}");
     CHECK(bodies::resolveUrl("https://www.youtube.com/@x") == "{\"url\":\"https://www.youtube.com/@x\"}");
 }
 TEST_CASE("account / actions") {
@@ -30,4 +34,11 @@ TEST_CASE("account / actions") {
           "{\"playlistId\":\"WL\",\"actions\":[{\"action\":\"ACTION_ADD_VIDEO\",\"addedVideoId\":\"v\"}]}");
     CHECK(bodies::editPlaylist("PL1", false, "S") ==
           "{\"playlistId\":\"PL1\",\"actions\":[{\"action\":\"ACTION_REMOVE_VIDEO\",\"setVideoId\":\"S\"}]}");
+}
+
+TEST_CASE("mdx handoff (QR)") {
+    CHECK(bodies::mdxHandoff("ABC-DEF-GHI") ==
+          "{\"handoffQrParams\":{\"rapidQrParams\":{\"qrPresetStyle\":"
+          "\"HANDOFF_QR_LIMITED_PRESET_STYLE_MODERN_BIG_DOTS_INVERT_WITH_YT_LOGO\","
+          "\"userCode\":\"ABC-DEF-GHI\",\"rapidQrFeature\":\"RAPID_QR_FEATURE_DEFAULT\"}}}");
 }

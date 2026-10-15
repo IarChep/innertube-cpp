@@ -16,6 +16,9 @@ ClientInfo defaultClientInfo(ClientId id) {
     // client (2026-07-12: 7.20260707.07.00 + the full Cobalt UA). Bump when TV re-breaks.
     static const ClientInfo TV    = { "TVHTML5", "7.20260707.07.00",
         "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)", 7 };
+    // Apple Vision Pro (Troubadour, 2026-08; live-verified 2026-10-14): number 101.
+    static const ClientInfo VISION = { "VISIONOS", "1.02",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15", 101 };
     switch (id) {
         case ClientId::WEB:        return WEB;
         case ClientId::WEB_SAFARI: return SAFARI;
@@ -23,6 +26,7 @@ ClientInfo defaultClientInfo(ClientId id) {
         case ClientId::ANDROID:    return ANDROID;
         case ClientId::ANDROID_VR: return ANDROID_VR;
         case ClientId::TVHTML5:    return TV;
+        case ClientId::VISIONOS:   return VISION;
     }
     return WEB;
 }

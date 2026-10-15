@@ -10,6 +10,7 @@
 #define YT_CORE_CHAINS_H
 #include <yt/result.h>
 #include <yt/types.h>
+#include <yt/player.h>
 #include "core/ihttp.h"
 #include "core/job.h"
 #include <functional>
@@ -36,7 +37,17 @@ struct TokenGrant {
 void fetchVideoList(IHttp &, const VideoListSpec &, const JobToken &, Callback<VideoPage> done);
 void fetchWatch(IHttp &, std::string videoId, const JobToken &, Callback<WatchResult> done);
 void fetchComments(IHttp &, std::string videoId, std::string page, const JobToken &, Callback<CommentPage> done);
-void fetchPlayer(IHttp &, std::string videoId, const JobToken &, std::function<void(const PlayerInfo &)> done);
+// The /player client walk (spec §2): WEB seeds visitorData when missing, then VISIONOS
+// → ANDROID_VR → TVHTML5 (signed in) → IOS, each asked only while a kind in
+// request.want is still missing. Every answer that carried a wanted kind becomes a
+// Source. Fails only when no client produced a parseable answer (or, with empty
+// sources, when TV got a 401 — the Client then refreshes the bearer and retries).
+void fetchPlayer(IHttp &, PlayerRequest request, const JobToken &, Callback<Player> done);
+// The caption URL with fmt=json3 set (an existing fmt value replaced, else appended);
+// every other byte stays as the server issued it.
+std::string json3Url(std::string url);
+// One caption track as cues: a raw GET of json3Url(track.url). An empty 200 is no cues.
+void fetchCaptions(IHttp &, CaptionTrack track, const JobToken &, Callback<std::vector<Cue>> done);
 void fetchChannelById(IHttp &, std::string channelId, const JobToken &, Callback<Channel> done);
 void fetchChannelByUrl(IHttp &, std::string url, const JobToken &, Callback<Channel> done);
 // The viewer's subscribe state — an AUTHED TVHTML5 browse (WEB is anonymous).
@@ -59,6 +70,9 @@ void fetchSearchSuggestions(IHttp &, std::string query, const JobToken &, Callba
 void oauthDeviceCode(IHttp &, const JobToken &, Callback<DeviceCodeGrant> done);
 void oauthPollToken(IHttp &, std::string deviceCode, const JobToken &, std::function<void(const TokenGrant &)> done);
 void oauthRefresh(IHttp &, std::string refreshToken, const JobToken &, std::function<void(const TokenGrant &)> done);
+// YouTube's QR image for a device code (mdx/handoff as TVHTML5): the PNG bytes from its
+// data: URL, or from one raw GET of a plain https URL. Anything that is not a PNG fails.
+void fetchSignInQr(IHttp &, std::string userCode, const JobToken &, Callback<std::string> done);
 
 }
 #endif

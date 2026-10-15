@@ -7,10 +7,11 @@
 #include <vector>
 namespace yt {
 
-// ANDROID_VR is the "JS-less sweet spot": ready stream URLs with no PoToken and no
-// signature decipher (needs the session visitorData since the 2026-07 bot wall).
-enum class ClientId { WEB, WEB_SAFARI, IOS, ANDROID, ANDROID_VR, TVHTML5 };
-constexpr int kClientIdCount = 6;
+// VISIONOS is the JS-less sweet spot for /player: ready adaptive URLs (no n, no
+// PoToken), HLS and SABR, and its sessions are not cut at ~60 s like ANDROID_VR's and
+// IOS's; it needs the session visitorData. ANDROID_VR adds the progressive itag 18.
+enum class ClientId { WEB, WEB_SAFARI, IOS, ANDROID, ANDROID_VR, TVHTML5, VISIONOS };
+constexpr int kClientIdCount = 7;
 
 struct ClientInfo { std::string name, version, userAgent; int id = 0; };   // id = X-YouTube-Client-Name
 ClientInfo defaultClientInfo(ClientId id);

@@ -29,12 +29,14 @@ add_library(innertube STATIC
     src/parsers/suggestparser.cpp
     src/innertube/bodies.cpp
     src/innertube/contextbuilder.cpp
+    src/innertube/playerjs.cpp
     src/net/loop.cpp
     src/net/url.cpp
     src/core/pct.cpp
     src/net/httpclient.cpp
     src/core/chains.cpp
     src/catalog.cpp
+    src/player.cpp
     src/client.cpp
     src/auth.cpp)
 add_library(innertube::innertube ALIAS innertube)

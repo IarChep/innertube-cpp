@@ -201,7 +201,8 @@ TEST_CASE("every endpoint reaches its chain") {
     c->search({"q", "date"}, nop);
     c->watch("v", nop);
     c->comments("v", "", nop);
-    c->player("v", [](const yt::PlayerInfo &) {});
+    c->player({"v"}, nop);
+    c->captions(yt::CaptionTrack{"https://y/t", "en", "English"}, nop);
     c->channel("UC", nop);
     c->channelByUrl("https://youtube.com/@x", nop);
     c->channelSubscribed("UC", nop);
@@ -219,6 +220,7 @@ TEST_CASE("every endpoint reaches its chain") {
     for (const char *ep : {"search", "next", "player", "browse", "navigation/resolve_url", "account/accounts_list",
                            "like/like", "comment/create_comment", "browse/edit_playlist"})
         CHECK_MESSAGE(f->lastClientFor(ep) != -1, ep);
+    CHECK_FALSE(f->fetched.empty());
 }
 
 // Final review C1: a callback destroying the Client in manual mode ran teardown inline,

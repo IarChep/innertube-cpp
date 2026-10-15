@@ -167,6 +167,7 @@ struct HttpClient::Exchange {
     std::string cacheKey;                  // empty = not cacheable
     int ttlSecs = 0;
     bool wantVisitor = false;              // scan responseContext.visitorData on finish?
+    bool raw = false;                      // fetch(): no envelope check
     int hops = 0;                          // redirects followed so far
     uint64_t transportId = 0;
     std::shared_ptr<HopSink> sink;
@@ -369,6 +370,42 @@ void HttpClient::get(std::string url, const core::JobToken &job, core::HttpFn do
     launch(ex);
 }
 
+void HttpClient::fetch(std::string url, std::vector<Header> headers, const core::JobToken &job, core::HttpFn done)
+{
+    if (schemeOf(url).empty()) { failAsync(job, std::move(done), "unsupported URL scheme"); return; }
+    std::string key = "GET|" + url;
+    for (const Header &h : headers) key.append(1, '\n').append(h.name).append(1, ':').append(h.value);
+    // Coalesce: two walks needing base.js share one ~3 MB download.
+    auto inflight = m_inflightByKey.find(key);
+    if (inflight != m_inflightByKey.end()) {
+        if (std::shared_ptr<Exchange> ex = inflight->second.lock()) {
+            if (!ex->done) { ex->waiters.push_back({job, std::move(done), deadline()}); return; }
+        }
+    }
+    HttpRequest req;
+    req.url = std::move(url);                        // byte-exact: never re-encoded
+    for (Header &h : headers) req.headers.push_back({std::move(h.name), std::move(h.value)});
+    std::shared_ptr<Exchange> ex = newExchange(std::move(req), job, std::move(done));
+    ex->raw = true;
+    m_inflightByKey[key] = ex;
+    ex->coalesceKey = std::move(key);
+    launch(ex);
+}
+
+void HttpClient::resetVisitorData()
+{
+    m_session.visitorData.clear();
+    for (int i = 0; i < kClientCount; ++i) { m_ctxValid[i] = false; m_hdrValid[i] = false; }
+    if (m_visitorSink) m_visitorSink(m_session.visitorData);
+}
+
+void HttpClient::setPlayerJs(std::string playerId, int signatureTimestamp)
+{
+    m_session.playerId = std::move(playerId);
+    m_session.signatureTimestamp = signatureTimestamp;
+    if (m_playerJsSink) m_playerJsSink(m_session.playerId, m_session.signatureTimestamp);
+}
+
 void HttpClient::postForm(std::string url, core::Form fields, const core::JobToken &job, core::HttpFn done)
 {
     if (schemeOf(url).empty()) { failAsync(job, std::move(done), "unsupported URL scheme"); return; }
@@ -478,6 +515,14 @@ void HttpClient::onHopDone(const std::shared_ptr<Exchange> &ex, const std::share
         }
         // Not followable (credentials, a POST) or Location-less: delivered as is — the
         // envelope check fails it.
+    }
+    if (ex->raw) {
+        // HTML, JavaScript and images skip the JSON envelope; an error status still fails
+        // rather than handing an error page to a byte scanner.
+        r.ok = hop->status >= 200 && hop->status < 300;
+        if (!r.ok) { r.code = ErrorCode::Api; r.error = "HTTP " + std::to_string(hop->status); }
+        complete(ex, std::move(r));
+        return;
     }
     envelope(r, ex->wantVisitor);
     // A non-2xx answer is a failure even when its JSON carries no "error" member — it is

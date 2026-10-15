@@ -38,3 +38,11 @@ TEST_CASE("a client override reaches the context and headers") {
     CHECK(ver); CHECK(ua);
     CHECK(ContextBuilder::contextJson(ClientId::WEB, s).find("\"clientVersion\":\"2.20260626.01.00\"") != std::string::npos);
 }
+TEST_CASE("visionos identity") {
+    const ClientInfo v = defaultClientInfo(ClientId::VISIONOS);
+    CHECK(v.name == "VISIONOS");
+    CHECK(v.version == "1.02");
+    CHECK(v.id == 101);
+    CHECK(v.userAgent.find("Version/26.0 Safari") != std::string::npos);
+    CHECK(kClientIdCount == 7);
+}

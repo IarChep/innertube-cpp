@@ -6,12 +6,15 @@
 #include "innertube/bodies.h"
 #include "innertube/catalog.h"
 #include "innertube/clientconfig.h"
+#include "innertube/playerjs.h"
 #include "json/ytjson.h"
 #include "parsers/continuation.h"
 #include "parsers/playerparser.h"
 #include "parsers/rendererparser.h"
 #include "parsers/suggestparser.h"
+#include <chrono>
 #include <memory>
+#include <random>
 
 namespace yt::core {
 
@@ -32,6 +35,11 @@ struct Token {
     std::optional<gj::FlexInt> expires_in;
 };
 struct Ryd { std::optional<gj::FlexInt> likes; std::optional<gj::FlexInt> dislikes; };
+struct QrThumb { std::optional<std::string> url; };
+struct QrImage { std::optional<std::vector<QrThumb>> thumbnails; };
+struct QrCode { std::optional<QrImage> qrCodeImage; };
+struct RapidQr { std::optional<QrCode> qrCodeRenderer; };
+struct Handoff { std::optional<RapidQr> rapidQrRenderer; };
 }
 
 namespace {
@@ -39,6 +47,7 @@ namespace {
 Error errorOf(const Reply &r) { return Error{r.code, r.error, r.httpStatus}; }
 Error unavailable(const char *what) { return Error{ErrorCode::Unavailable, what, 0}; }
 std::string str(const std::optional<std::string> &s) { return s ? *s : std::string(); }
+bool isPng(const std::string &b) { return b.compare(0, 8, "\x89PNG\r\n\x1a\n") == 0; }
 
 // Search sort -> the base64 protobuf `params`.
 std::string sortParam(const std::string &order)
@@ -173,104 +182,268 @@ void fetchComments(IHttp &http, std::string videoId, std::string page, const Job
 }
 
 namespace {
-struct PlayerAccum {
-    bool haveCaptions = false;
-    std::vector<Subtitle> captions;
-    Error lastError;                                 // for the all-transport-failed caption path
-    bool unauthorized = false;                       // an attempt (the bearer's TVHTML5) got HTTP 401
+
+// One /player walk (engine thread only).
+struct PlayerWalk {
+    PlayerRequest req;
+    unsigned covered = 0;                // kinds already found
+    std::vector<ClientId> steps;         // clients still to ask, front first
+    bool seeded = false;                 // asked WEB for a visitorData in this walk
+    bool botRetried = false;             // one visitorData reseed per walk
+    bool jsTried = false;                // one lazy base.js read per walk
+    bool jsReloaded = false;             // one re-read after a TV UNPLAYABLE
+    bool anyParsed = false;
+    bool sawUnauthorized = false;
+    bool metadataOnly = false;           // want == 0: stop after the first answer
+    Error lastError{ErrorCode::Transport, "no player response", 0};
+    int bestRank = -1;
+    Player out;
+    Callback<Player> done;
 };
+
+std::string newCpn()
+{
+    static const char kAlphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    // Per engine thread: several Clients may run walks at once.
+    static thread_local std::mt19937 rng{std::random_device{}()};
+    std::string s(16, 'A');
+    for (char &c : s) c = kAlphabet[rng() % 64];
+    return s;
 }
 
-// Walks the ordered /player client list until one yields streams.
-static void playerTry(IHttp &http, std::string videoId, std::shared_ptr<std::vector<ClientId>> clients, size_t idx,
-                      std::shared_ptr<PlayerAccum> acc, const JobToken &job, std::function<void(const PlayerInfo &)> done)
+int rankOf(Playability k)
 {
-    const ClientId client = (*clients)[idx];
-    // TVHTML5 needs playbackContext.contentPlaybackContext or YouTube answers
-    // "UNPLAYABLE: The page needs to be reloaded"; the mobile clients stay minimal.
-    const bool tvCtx = (client == ClientId::TVHTML5);
+    switch (k) {
+    case Playability::Ok: return 5;
+    case Playability::Upcoming: case Playability::LiveOffline: return 4;
+    case Playability::Unplayable: case Playability::AgeRestricted: case Playability::LoginRequired: return 3;
+    case Playability::BotCheck: return 2;
+    case Playability::Unknown: return 1;
+    }
+    return 0;
+}
+
+// The kinds a parsed answer covers — decided on URLs, never on the status: an OK answer
+// may carry formats without a single URL (SABR-only).
+unsigned kindsOf(const PlayerPart &p)
+{
+    unsigned k = 0;
+    bool video = false, audio = false;
+    for (const Format &f : p.formats) {
+        if (f.url.empty()) continue;
+        if (f.hasVideo && f.hasAudio) k |= WantProgressive;
+        else if (f.hasVideo) video = true;
+        else if (f.hasAudio) audio = true;
+    }
+    if (video && audio) k |= WantAdaptive;
+    if (!p.hlsUrl.empty()) k |= WantHls;
+    if (!p.sabrUrl.empty()) k |= WantSabr;
+    return k;
+}
+
+// Whether asking `c` can still pay off for the `missing` kinds.
+bool worth(ClientId c, unsigned missing)
+{
+    if (c == ClientId::TVHTML5) return (missing & (WantSabr | WantAdaptive)) != 0;
+    if (c == ClientId::IOS) return (missing & WantHls) != 0;
+    return missing != 0;
+}
+
+bool needsVisitor(ClientId c) { return c == ClientId::VISIONOS || c == ClientId::ANDROID_VR; }
+
+void merge(PlayerWalk &w, IHttp &http, ClientId c, PlayerPart &p)
+{
+    const unsigned kinds = kindsOf(p) & w.req.want;
+    if (kinds) {
+        Source s;
+        s.client = c;
+        s.userAgent = http.session().clients[(int) c].userAgent;
+        s.formats = std::move(p.formats);
+        s.hlsUrl = p.hlsUrl;
+        s.dashUrl = p.dashUrl;
+        s.sabrUrl = p.sabrUrl;
+        s.sabrConfig = p.sabrConfig;
+        if (p.expiresInSecs > 0) {
+            const int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            s.expiresAtSecs = now + p.expiresInSecs;
+        }
+        w.out.sources.push_back(std::move(s));
+        w.covered |= kinds;
+    }
+    const int rank = rankOf(p.status.kind);
+    if (rank > w.bestRank) { w.bestRank = rank; w.out.status = p.status; }
+    if (w.out.details.id.empty() && !p.details.id.empty()) w.out.details = p.details;
+    // WEB caption URLs need a PO token (they answer empty without one).
+    if (w.out.captions.empty() && c != ClientId::WEB && !p.captions.empty()) w.out.captions = p.captions;
+    if (w.out.storyboard.empty() && !p.storyboardSpec.empty())
+        w.out.storyboard = parseStoryboardSpec(p.storyboardSpec, p.details.lengthSecs);
+    // Prefer the TV (signed-in) videostats URLs: the view is attributed to the account.
+    if (!p.watchtimeUrl.empty() && (w.out.watchtimeUrl.empty() || c == ClientId::TVHTML5)) {
+        w.out.watchtimeUrl = p.watchtimeUrl;
+        w.out.playbackUrl = p.playbackUrl;
+    }
+}
+
+void finishWalk(const std::shared_ptr<PlayerWalk> &w)
+{
+    Result<Player> r;
+    if (!w->anyParsed) {
+        r.error = w->lastError;
+        if (w->sawUnauthorized) r.error->httpStatus = 401;
+    } else if (w->sawUnauthorized && w->out.sources.empty()) {
+        r.error = Error{ErrorCode::AuthRequired, "player: bearer rejected", 401};
+    } else {
+        r.value = std::move(w->out);
+    }
+    w->done(r);
+}
+
+// Reads the live player build and its signatureTimestamp (/tv page, then base.js) unless
+// they are known and `force` is false; runs `then` afterwards whatever happened — the TV
+// request goes out without sts rather than not at all.
+void ensurePlayerJs(IHttp &http, const JobToken &job, bool force, std::function<void()> then)
+{
+    if (!force && http.session().signatureTimestamp > 0) { then(); return; }
     IHttp *h = &http;
-    http.post("player", client, bodies::player(videoId, tvCtx), job,
-        [h, videoId, clients, idx, client, acc, job, done](const Reply &r) {
-            const bool isLast = (idx + 1 >= clients->size());
-            auto finish = [&](Result<std::vector<Stream>> streams) {
-                PlayerInfo out;
-                out.streams = std::move(streams);
-                // The walk moves past a rejected bearer to the anonymous clients; when they
-                // fail too, report the 401 so the Client refreshes the bearer and retries.
-                if (acc->unauthorized && out.streams.error) out.streams.error->httpStatus = 401;
-                if (acc->haveCaptions || r.ok) out.captions.value = acc->captions;
-                else out.captions.error = acc->lastError;   // every attempt transport-failed
-                done(out);
-            };
-            if (r.ok) {
-                const PlayerResult pr = parsePlayer(*r.body);
-                if (h->log()) {
-                    int prog = 0; bool hls = false, aud = false;
-                    for (const Stream &s : pr.streams) {
-                        if (s.id == "hls") hls = true;
-                        else if (s.id == "audio") aud = true;
-                        else if (s.width > 0) ++prog;
-                    }
-                    YTLOG(h->log(), "player") << "player" << h->session().clients[(int) client].name
-                        << "playable=" << pr.playable << "streams=" << pr.streams.size()
-                        << "hls=" << hls << "prog=" << prog << "audio=" << aud
-                        << "formats=" << pr.formatsSeen << "adaptive=" << pr.adaptiveSeen
-                        << "ciphered=" << pr.cipheredOnly << "sabr=" << pr.sabr << "reason=" << pr.reason;
-                }
-                // Captions from the first response that ACTUALLY has them: signed in, TV is
-                // tried first but carries no captionTracks — an empty list must not latch.
-                if (!acc->haveCaptions && !pr.captions.empty()) { acc->haveCaptions = true; acc->captions = pr.captions; }
-                if (pr.playable) {
-                    if (!pr.streams.empty()) {
-                        Result<std::vector<Stream>> s; s.value = pr.streams;
-                        PlayerInfo out;
-                        out.streams = std::move(s);
-                        out.captions.value = acc->captions;
-                        done(out);
-                        return;
-                    }
-                    if (isLast && pr.cipheredOnly) {
-                        Result<std::vector<Stream>> s;
-                        s.error = Error{ErrorCode::Unsupported, "streams require signature decipher (unsupported)", 0};
-                        finish(std::move(s));
-                        return;
-                    }
-                } else if (isLast) {
-                    Result<std::vector<Stream>> s;
-                    s.error = Error{ErrorCode::Unavailable, pr.reason, 0};
-                    finish(std::move(s));
-                    return;
-                }
-            } else {
-                acc->lastError = errorOf(r);
-                if (r.httpStatus == 401) acc->unauthorized = true;
-                YTLOG(h->log(), "player") << "player" << h->session().clients[(int) client].name << "TRANSPORT FAIL:" << r.error;
-            }
-            if (isLast) {
-                Result<std::vector<Stream>> s;
-                s.error = r.ok ? Error{ErrorCode::Unavailable, "no playable streams", 0} : errorOf(r);
-                finish(std::move(s));
-                return;
-            }
-            if (!live(job)) return;                  // canceled between attempts
-            playerTry(*h, videoId, clients, idx + 1, acc, job, done);
+    std::vector<Header> ua = {{"User-Agent", http.session().clients[(int) ClientId::TVHTML5].userAgent}};
+    http.fetch(Catalog::kTvPageUrl, std::move(ua), job, [h, job, then](const Reply &r) {
+        if (!live(job)) return;
+        const std::string id = r.ok ? playerIdIn(*r.body) : std::string();
+        if (id.empty() || (id == h->session().playerId && h->session().signatureTimestamp > 0)) { then(); return; }
+        h->fetch(playerScriptUrl(id), {}, job, [h, job, id, then](const Reply &js) {
+            if (!live(job)) return;
+            const int sts = js.ok ? signatureTimestampIn(*js.body) : 0;
+            if (sts > 0) h->setPlayerJs(id, sts);
+            then();
         });
+    });
 }
 
-void fetchPlayer(IHttp &http, std::string videoId, const JobToken &job, std::function<void(const PlayerInfo &)> done)
+void playerStep(IHttp &http, std::shared_ptr<PlayerWalk> w, JobToken job);
+
+// Step 0: one anonymous WEB /player, only for the visitorData its responseContext
+// carries (HttpClient adopts it); its answer is never a source.
+void seedVisitor(IHttp &http, std::shared_ptr<PlayerWalk> w, JobToken job)
 {
-    auto acc = std::make_shared<PlayerAccum>();
-    auto clients = std::make_shared<std::vector<ClientId>>();
-    // TVHTML5 first when signed in: an AUTHENTICATED /player clears the "confirm you're
-    // not a bot" gate that rejects anonymous ANDROID_VR requests.
-    if (!http.session().bearer.empty()) clients->push_back(ClientId::TVHTML5);
-    // ANDROID_VR (with the session's visitorData) returns ready-to-fetch progressive
-    // URLs: server-signed, no n-param, no PoToken, no client-side decipher.
-    clients->push_back(ClientId::ANDROID_VR);
-    // IOS last: may carry an hlsManifestUrl; must stay visitorData-free (ContextBuilder).
-    clients->push_back(ClientId::IOS);
-    playerTry(http, std::move(videoId), clients, 0, acc, job, std::move(done));
+    w->seeded = true;
+    IHttp *h = &http;
+    http.post("player", ClientId::WEB, bodies::player(w->req.videoId), job, [h, w, job](const Reply &r) {
+        if (r.ok) {
+            w->anyParsed = true;
+            PlayerPart p = parsePlayerResponse(*r.body);
+            // WEB formats are n-protected or SABR-only, and WEB answers UNPLAYABLE for
+            // ordinary videos (live-verified): neither a source nor a verdict.
+            p.formats.clear(); p.hlsUrl.clear(); p.sabrUrl.clear(); p.dashUrl.clear();
+            p.status = PlayabilityStatus{};
+            merge(*w, *h, ClientId::WEB, p);
+        }
+        if (!live(job)) return;
+        playerStep(*h, w, job);
+    });
+}
+
+void playerStep(IHttp &http, std::shared_ptr<PlayerWalk> w, JobToken job)
+{
+    const unsigned missing = w->req.want & ~w->covered;
+    while (!w->steps.empty() && !worth(w->steps.front(), missing)) w->steps.erase(w->steps.begin());
+    if (w->steps.empty()) { finishWalk(w); return; }
+    const ClientId c = w->steps.front();
+    if (needsVisitor(c) && http.session().visitorData.empty() && !w->seeded) { seedVisitor(http, w, job); return; }
+    if (c == ClientId::TVHTML5 && !w->jsTried) {
+        w->jsTried = true;
+        IHttp *h = &http;
+        ensurePlayerJs(http, job, false, [h, w, job]() { playerStep(*h, w, job); });
+        return;
+    }
+    w->steps.erase(w->steps.begin());
+    bodies::PlayerBody body;
+    if (c == ClientId::TVHTML5) {
+        body.tv = true;
+        body.cpn = w->out.cpn;
+        body.signatureTimestamp = http.session().signatureTimestamp;
+    }
+    IHttp *h = &http;
+    http.post("player", c, bodies::player(w->req.videoId, body), job, [h, w, job, c](const Reply &r) {
+        if (!r.ok) {
+            w->lastError = errorOf(r);
+            if (r.httpStatus == 401) w->sawUnauthorized = true;
+            YTLOG(h->log(), "player") << "player" << h->session().clients[(int) c].name << "failed:" << r.error;
+            if (live(job)) playerStep(*h, w, job);
+            return;
+        }
+        w->anyParsed = true;
+        PlayerPart p = parsePlayerResponse(*r.body);
+        YTLOG(h->log(), "player") << "player" << h->session().clients[(int) c].name << p.status.status
+            << "formats=" << p.formats.size() << "kinds=" << kindsOf(p) << "hls=" << !p.hlsUrl.empty()
+            << "sabr=" << !p.sabrUrl.empty();
+        // TV carries the bearer: LOGIN_REQUIRED there is about the account, not a bot wall.
+        if (c == ClientId::TVHTML5 && p.status.kind == Playability::BotCheck)
+            p.status.kind = Playability::LoginRequired;
+        if (needsVisitor(c) && p.status.kind == Playability::BotCheck && !w->botRetried) {
+            // A flagged visitorData: drop it, reseed, and ask the same client again.
+            w->botRetried = true;
+            w->seeded = false;
+            h->resetVisitorData();
+            w->steps.insert(w->steps.begin(), c);
+            merge(*w, *h, c, p);
+            if (live(job)) playerStep(*h, w, job);
+            return;
+        }
+        if (c == ClientId::TVHTML5 && p.status.kind == Playability::Unplayable && !w->jsReloaded
+            && !h->session().playerId.empty()) {
+            // "The page needs to be reloaded" (localized): YouTube may have rotated the player
+            // build under us — re-read it and, if it changed, ask TV once more.
+            w->jsReloaded = true;
+            const std::string before = h->session().playerId;
+            ensurePlayerJs(*h, job, true, [h, w, job, before]() {
+                if (h->session().playerId != before) w->steps.insert(w->steps.begin(), ClientId::TVHTML5);
+                playerStep(*h, w, job);
+            });
+            return;
+        }
+        merge(*w, *h, c, p);
+        if (p.final || w->metadataOnly) w->steps.clear();
+        if (live(job)) playerStep(*h, w, job);
+    });
+}
+
+} // namespace
+
+void fetchPlayer(IHttp &http, PlayerRequest request, const JobToken &job, Callback<Player> done)
+{
+    auto w = std::make_shared<PlayerWalk>();
+    w->req = std::move(request);
+    w->done = std::move(done);
+    w->out.cpn = newCpn();
+    if (w->req.want == 0) { w->metadataOnly = true; w->req.want = WantAll; }
+    w->steps = {ClientId::VISIONOS, ClientId::ANDROID_VR};
+    if (!http.session().bearer.empty()) w->steps.push_back(ClientId::TVHTML5);
+    w->steps.push_back(ClientId::IOS);
+    playerStep(http, w, job);
+}
+
+std::string json3Url(std::string url)
+{
+    const size_t q = url.find('?');
+    if (q == std::string::npos) return url + "?fmt=json3";
+    for (size_t p = q; p != std::string::npos; p = url.find('&', p + 1)) {
+        if (url.compare(p + 1, 4, "fmt=") != 0) continue;
+        const size_t v = p + 5, end = url.find('&', v);
+        url.replace(v, (end == std::string::npos ? url.size() : end) - v, "json3");
+        return url;
+    }
+    return url + "&fmt=json3";
+}
+
+void fetchCaptions(IHttp &http, CaptionTrack track, const JobToken &job, Callback<std::vector<Cue>> done)
+{
+    http.fetch(json3Url(std::move(track.url)), {}, job, [done](const Reply &r) {
+        Result<std::vector<Cue>> out;
+        if (!r.ok) { out.error = errorOf(r); done(out); return; }
+        out.value = parseJson3(*r.body);
+        done(out);
+    });
 }
 
 void fetchChannelById(IHttp &http, std::string channelId, const JobToken &job, Callback<Channel> done)
@@ -401,6 +574,44 @@ void oauthRefresh(IHttp &http, std::string refreshToken, const JobToken &job, st
               {"refresh_token", std::move(refreshToken)},
               {"grant_type", "refresh_token"}};
     http.postForm(Catalog::kTokenUrl, std::move(f), job, [done](const Reply &r) { done(tokenGrantOf(r)); });
+}
+
+void fetchSignInQr(IHttp &http, std::string userCode, const JobToken &job, Callback<std::string> done)
+{
+    IHttp *h = &http;
+    http.post("mdx/handoff", ClientId::TVHTML5, bodies::mdxHandoff(userCode), job, [h, job, done](const Reply &r) {
+        Result<std::string> out;
+        if (!r.ok) { out.error = errorOf(r); done(out); return; }
+        oj::Handoff hf{};
+        gj::readJsonDoc(hf, *r.body);
+        std::string url;
+        if (hf.rapidQrRenderer && hf.rapidQrRenderer->qrCodeRenderer && hf.rapidQrRenderer->qrCodeRenderer->qrCodeImage
+            && hf.rapidQrRenderer->qrCodeRenderer->qrCodeImage->thumbnails
+            && !hf.rapidQrRenderer->qrCodeRenderer->qrCodeImage->thumbnails->empty())
+            url = str(hf.rapidQrRenderer->qrCodeRenderer->qrCodeImage->thumbnails->front().url);
+        static const std::string_view kData = "data:image/png;base64,";
+        if (url.compare(0, kData.size(), kData) == 0) {
+            if (!gj::base64Decode(std::string_view(url).substr(kData.size()), &out.value) || !isPng(out.value)) {
+                out.value.clear();
+                out.error = unavailable("sign-in QR is not a PNG");
+            }
+            done(out);
+            return;
+        }
+        if (url.compare(0, 8, "https://") == 0) {
+            if (!live(job)) return;
+            h->fetch(url, {}, job, [done](const Reply &img) {
+                Result<std::string> o;
+                if (!img.ok) o.error = errorOf(img);
+                else if (!isPng(*img.body)) o.error = unavailable("sign-in QR is not a PNG");
+                else o.value = *img.body;
+                done(o);
+            });
+            return;
+        }
+        out.error = unavailable("no sign-in QR in the answer");
+        done(out);
+    });
 }
 
 // A plain GET — no youtubei context. The envelope check passes non-YouTube JSON

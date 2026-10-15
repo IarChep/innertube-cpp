@@ -2,7 +2,7 @@
 #define YT_YTJSON_H
 // Qt-free Glaze layer: the read options + the small JSON shapes shared by every
 // InnerTube parser (text runs, thumbnail arrays, view-model "sources", flexible
-// numbers). Pure std types only — this header must stay includable from code
+// numbers), base64. Pure std types only — this header must stay includable from code
 // that will later run on a worker thread with no Qt in sight.
 //
 // Glaze reflection requires namespace-scope aggregates; every struct here and in
@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -141,6 +142,38 @@ struct ContentText {
 inline std::string contentOf(const std::optional<ContentText> &c)
 {
     return (c && c->content) ? *c->content : std::string();
+}
+
+// ---- base64 (xtags, data: URLs) ---------------------------------------------
+// YouTube fields come in both alphabets and usually without padding (xtags,
+// videoPlaybackUstreamerConfig are base64url; a QR data: URL is classic). Here, in
+// the bottom layer, so the parsers and the chains share one decoder.
+inline bool base64Decode(std::string_view in, std::string *out)
+{
+    out->clear();
+    size_t n = in.size();
+    while (n > 0 && in[n - 1] == '=') --n;
+    if (n % 4 == 1) return false;                    // a lone sextet carries no byte
+    out->reserve(n * 3 / 4);
+    std::uint32_t acc = 0;
+    int bits = 0;
+    for (size_t i = 0; i < n; ++i) {
+        const char c = in[i];
+        int v;
+        if (c >= 'A' && c <= 'Z') v = c - 'A';
+        else if (c >= 'a' && c <= 'z') v = c - 'a' + 26;
+        else if (c >= '0' && c <= '9') v = c - '0' + 52;
+        else if (c == '+' || c == '-') v = 62;
+        else if (c == '/' || c == '_') v = 63;
+        else { out->clear(); return false; }
+        acc = (acc << 6) | (std::uint32_t) v;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out->push_back((char) ((acc >> bits) & 0xff));
+        }
+    }
+    return true;
 }
 
 } // namespace gj

@@ -4,6 +4,7 @@
 #include <yt/testing.h>
 #include "innertube/catalog.h"
 #include "fakehttp.h"
+#include "testutil.h"
 #include <chrono>
 #include <thread>
 
@@ -257,25 +258,27 @@ TEST_CASE("a late 401 for an already-replaced bearer does not refresh again") {
     CHECK(r.f->session().bearer == "A2");
 }
 
-// The signed-in /player walk moves past a 401 on TVHTML5 to the anonymous clients; when
-// they fail too, the 401 must still reach the refresh-and-retry logic.
+// The signed-in /player walk moves past a 401 on TVHTML5 to IOS; when nothing yields a
+// source, the 401 must still reach the refresh-and-retry logic.
 TEST_CASE("player: a 401 on the bearer's client refreshes and retries") {
     Rig r("R");
     r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A1\",\"expires_in\":3600}");
     r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A2\",\"expires_in\":3600}");
     for (int run = 0; run < 2; ++run) {
-        r.f->queue("player", "{\"error\":{}}", 401);   // TVHTML5
-        r.f->queue("player", "{}");                      // ANDROID_VR: not playable
-        r.f->queue("player", "{}");                      // IOS: not playable
+        r.f->queue("player", "{}");                      // WEB: the visitorData seed (none comes)
+        r.f->queue("player", "{}");                      // VISIONOS: nothing
+        r.f->queue("player", "{}");                      // ANDROID_VR: nothing
+        r.f->queue("player", "{\"error\":{}}", 401);   // TVHTML5 (no sts: the /tv fetch fails)
+        r.f->queue("player", "{}");                      // IOS: nothing
     }
-    int calls = 0; yt::PlayerInfo res;
-    r.c->player("vid", [&](const yt::PlayerInfo &p) { ++calls; res = p; });
+    int calls = 0; yt::Result<yt::Player> res;
+    r.c->player({"vid"}, [&](const yt::Result<yt::Player> &p) { ++calls; res = p; });
     r.pump(30);
     CHECK(calls == 1);
     CHECK(r.f->sentForm.size() == 2);                 // initial + the forced refresh
-    CHECK(r.f->sent.size() == 6);                     // the whole walk, retried once
-    REQUIRE_FALSE(res.streams.ok());
-    CHECK(res.streams.error->httpStatus == 401);
+    CHECK(r.f->sent.size() == 10);                    // the whole walk, retried once
+    REQUIRE_FALSE(res.ok());
+    CHECK(res.error->httpStatus == 401);
 }
 
 // A network blip while polling used to abort the whole sign-in.
@@ -307,4 +310,35 @@ TEST_CASE("device flow: network errors past the code's expiry fail the sign-in")
     REQUIRE(done);
     CHECK_FALSE(res.ok());
     CHECK(res.error->message == "network down");
+}
+
+TEST_CASE("device flow delivers YouTube's QR image with the code") {
+    Rig r;
+    r.f->queue(yt::Catalog::kDeviceCodeUrl,
+               "{\"device_code\":\"D\",\"user_code\":\"U\",\"verification_url\":\"V\",\"interval\":1,\"expires_in\":1800}");
+    r.f->queue("mdx/handoff", loadFixtureRaw("mdx_handoff.json"));
+    r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A\",\"refresh_token\":\"R\",\"expires_in\":3600}");
+    yt::DeviceCode code; int codes = 0; bool done = false;
+    r.c->auth().signIn([&](const yt::DeviceCode &dc) { code = dc; ++codes; },
+                       [&](const yt::Result<yt::Done> &) { done = true; });
+    r.pumpFor(5000, [&] { return done; });
+    REQUIRE(done);
+    CHECK(codes == 1);
+    CHECK(code.userCode == "U");
+    CHECK(code.expiresInSecs == 1800);
+    CHECK(code.qrPng.compare(0, 8, "\x89PNG\r\n\x1a\n") == 0);
+}
+TEST_CASE("a failed QR request does not stop the sign-in") {
+    Rig r;
+    r.f->queue(yt::Catalog::kDeviceCodeUrl, "{\"device_code\":\"D\",\"user_code\":\"U\",\"verification_url\":\"V\",\"interval\":1}");
+    r.f->queue("mdx/handoff", "{}", 500);
+    r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A\",\"refresh_token\":\"R\"}");
+    yt::DeviceCode code; int codes = 0; bool done = false; yt::Result<yt::Done> res;
+    r.c->auth().signIn([&](const yt::DeviceCode &dc) { code = dc; ++codes; },
+                       [&](const yt::Result<yt::Done> &x) { res = x; done = true; });
+    r.pumpFor(5000, [&] { return done; });
+    REQUIRE(done);
+    CHECK(res.ok());
+    CHECK(codes == 1);
+    CHECK(code.qrPng.empty());
 }

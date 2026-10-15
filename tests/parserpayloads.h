@@ -83,10 +83,6 @@ inline const char *kChannelSubscribed = R"({"header": {"c4TabbedHeaderRenderer":
     "avatar": {"thumbnails": [
         {"url": "https://a/s.jpg"}, {"url": "https://a/l.jpg"} ]}}}})";
 
-inline const char *kPlayableOk = R"({"playabilityStatus":{"status":"OK"}})";
-inline const char *kPlayableLogin =
-    R"({"playabilityStatus":{"status":"LOGIN_REQUIRED","reason":"Sign in"}})";
-
 // Authed WEB /next: the like/dislike toggle carries account state. Modern shape —
 // segmentedLikeDislikeButtonViewModel holds a likeButtonViewModel (toggled ON ->
 // Liked, count "1,234" whose comma is stripped -> 1234) and a dislikeButtonViewModel

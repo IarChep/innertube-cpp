@@ -21,102 +21,285 @@ const std::string *formValue(const Form &f, const char *key) {
     for (const auto &kv : f) if (kv.first == key) return &kv.second;
     return nullptr;
 }
-struct PlayerCap {
-    int calls = 0;
-    PlayerInfo r;
-    std::function<void(const PlayerInfo &)> fn() { return [this](const PlayerInfo &x) { ++calls; r = x; }; }
-};
 }
 
-// ---- fetchPlayer: streams side ----
-TEST_CASE("streamsFromIos") {
-    FakeHttp t; t.queue("player", loadFixtureRaw("player_ios.json"));
-    PlayerCap c;
-    fetchPlayer(t, "aaa11111111", newJob(), c.fn());
-    t.flush();
-    CHECK(c.calls == 1);
-    REQUIRE(c.r.streams.ok());
-    CHECK(c.r.streams.value.size() >= 3);
-    CHECK(c.r.streams.value[0].id == "hls");
+// ---- fetchPlayer: the client walk ----
+namespace {
+const char *kOkEmpty = "{\"playabilityStatus\":{\"status\":\"OK\"},\"streamingData\":{\"adaptiveFormats\":[]}}";
+const char *kTvSabr = "{\"playabilityStatus\":{\"status\":\"OK\"},\"streamingData\":{\"adaptiveFormats\":"
+    "[{\"itag\":137,\"mimeType\":\"video/mp4\"}],\"serverAbrStreamingUrl\":\"https://rr.example/sabr?c=TVHTML5\"},"
+    "\"playbackTracking\":{\"videostatsWatchtimeUrl\":{\"baseUrl\":\"https://s.youtube.com/api/stats/watchtime?c=TVHTML5\"}}}";
+const char *kUnplayable = "{\"playabilityStatus\":{\"status\":\"UNPLAYABLE\",\"reason\":\"The page needs to be reloaded.\"}}";
+const char *kSeed = "{\"responseContext\":{\"visitorData\":\"FRESH\"},\"playabilityStatus\":{\"status\":\"UNPLAYABLE\"},"
+    "\"captions\":{\"playerCaptionsTracklistRenderer\":{\"captionTracks\":[{\"baseUrl\":\"https://www.youtube.com/api/timedtext?web=1\",\"languageCode\":\"en\"}]}}}";
+std::vector<int> ids(std::initializer_list<ClientId> c)
+{
+    std::vector<int> v;
+    for (ClientId x : c) v.push_back((int) x);
+    return v;
 }
-TEST_CASE("streamsFromAndroidFallback") {
+}
+
+TEST_CASE("the walk stops once every wanted kind is covered") {
+    FakeHttp t; t.session().visitorData = "VD";
+    t.queue("player", loadFixtureRaw("player_visionos_ok.json"));
+    Cap<Player> c;
+    fetchPlayer(t, {"dQw4w9WgXcQ", WantAdaptive | WantHls | WantSabr}, newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.calls == 1);
+    REQUIRE(c.r.ok());
+    CHECK(t.sentClients == ids({ClientId::VISIONOS}));
+    REQUIRE(c.r.value.sources.size() == 1);
+    const Source &s = c.r.value.sources[0];
+    CHECK(s.client == ClientId::VISIONOS);
+    CHECK(s.userAgent == defaultClientInfo(ClientId::VISIONOS).userAgent);
+    CHECK(s.formats.size() == 4);
+    CHECK(s.hlsUrl.find("manifest.example") != std::string::npos);
+    CHECK(s.sabrConfig == "CgUSA2FiYw");
+    CHECK(s.expiresAtSecs > 1700000000);
+    CHECK(c.r.value.status.kind == Playability::Ok);
+    CHECK(c.r.value.details.title.find("Never Gonna") != std::string::npos);
+    CHECK(c.r.value.storyboard.size() == 2);
+    CHECK(c.r.value.captions.size() == 2);
+    CHECK(c.r.value.cpn.size() == 16);
+    CHECK(has(t.sent[0], "\"videoId\":\"dQw4w9WgXcQ\""));
+    CHECK_FALSE(has(t.sent[0], "playbackContext"));   // only TV needs it
+}
+TEST_CASE("progressive comes from ANDROID_VR and every source keeps its own UA") {
+    FakeHttp t; t.session().visitorData = "VD";
+    t.queue("player", loadFixtureRaw("player_visionos_ok.json"));
+    t.queue("player", loadFixtureRaw("player_vr_ok.json"));
+    Cap<Player> c;
+    fetchPlayer(t, {"v"}, newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    CHECK(t.sentClients == ids({ClientId::VISIONOS, ClientId::ANDROID_VR}));   // HLS already covered: no IOS
+    REQUIRE(c.r.value.sources.size() == 2);
+    CHECK(c.r.value.sources[1].client == ClientId::ANDROID_VR);
+    CHECK(c.r.value.sources[1].userAgent == defaultClientInfo(ClientId::ANDROID_VR).userAgent);
+    CHECK(c.r.value.sources[1].formats[0].itag == 18);
+}
+TEST_CASE("without visitorData a WEB answer seeds it first") {
     FakeHttp t;
-    t.queue("player", "{\"playabilityStatus\":{\"status\":\"OK\"},\"streamingData\":{\"formats\":[]}}");
-    t.queue("player", loadFixtureRaw("player_ios.json"));
-    PlayerCap c;
-    fetchPlayer(t, "vid", newJob(), c.fn());
+    t.queue("player", kSeed, 200, "FRESH");
+    t.queue("player", loadFixtureRaw("player_visionos_ok.json"));
+    Cap<Player> c;
+    fetchPlayer(t, {"v", WantAdaptive}, newJob(), c.fn());
     t.flush();
-    CHECK(c.calls == 1);
-    REQUIRE(c.r.streams.ok());
-    CHECK(c.r.streams.value[0].id == "hls");
-    CHECK(t.sent.size() == 2);
+    REQUIRE(c.r.ok());
+    CHECK(t.sentClients == ids({ClientId::WEB, ClientId::VISIONOS}));
+    CHECK(t.session().visitorData == "FRESH");
+    REQUIRE(c.r.value.sources.size() == 1);          // the seed is never a source
+    CHECK(c.r.value.sources[0].client == ClientId::VISIONOS);
+    REQUIRE_FALSE(c.r.value.captions.empty());       // WEB caption URLs need pot: not taken
+    CHECK(c.r.value.captions[0].url.find("web=1") == std::string::npos);
 }
-TEST_CASE("streamsFromAuthedTvFirst") {
-    FakeHttp t; t.session().bearer = "tok";
-    t.queue("player", loadFixtureRaw("player_ios.json"));
-    PlayerCap c;
-    fetchPlayer(t, "vid", newJob(), c.fn());
+TEST_CASE("a bot check reseeds visitorData once and repeats the same client") {
+    FakeHttp t; t.session().visitorData = "FLAGGED";
+    t.queue("player", loadFixtureRaw("player_botcheck.json"));
+    t.queue("player", kSeed, 200, "FRESH");
+    t.queue("player", loadFixtureRaw("player_visionos_ok.json"));
+    Cap<Player> c;
+    fetchPlayer(t, {"v", WantAdaptive}, newJob(), c.fn());
     t.flush();
-    CHECK(c.calls == 1);
-    CHECK(c.r.streams.ok());
+    REQUIRE(c.r.ok());
+    CHECK(t.sentClients == ids({ClientId::VISIONOS, ClientId::WEB, ClientId::VISIONOS}));
+    CHECK(t.visitorResets == 1);
+    CHECK(c.r.value.status.kind == Playability::Ok);
+    CHECK(c.r.value.sources.size() == 1);
+}
+TEST_CASE("a second bot check is not retried and the verdict is reported") {
+    FakeHttp t; t.session().visitorData = "FLAGGED";
+    t.queue("player", loadFixtureRaw("player_botcheck.json"));
+    t.queue("player", kSeed, 200, "FRESH");
+    t.queue("player", loadFixtureRaw("player_botcheck.json"));
+    t.queue("player", loadFixtureRaw("player_botcheck.json"));
+    Cap<Player> c;
+    fetchPlayer(t, {"v", WantAdaptive}, newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());                                // an answer arrived: not a failure
+    CHECK(t.sentClients == ids({ClientId::VISIONOS, ClientId::WEB, ClientId::VISIONOS, ClientId::ANDROID_VR}));
+    CHECK(t.visitorResets == 1);
+    CHECK(c.r.value.status.kind == Playability::BotCheck);
+    CHECK(c.r.value.sources.empty());
+}
+TEST_CASE("a later bot check does not hide an earlier OK") {
+    FakeHttp t; t.session().visitorData = "VD";
+    t.queue("player", loadFixtureRaw("player_visionos_ok.json"));
+    t.queue("player", loadFixtureRaw("player_botcheck.json"));
+    t.queue("player", kSeed, 200, "FRESH");
+    t.queue("player", loadFixtureRaw("player_botcheck.json"));
+    Cap<Player> c;
+    fetchPlayer(t, {"v", WantProgressive}, newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    CHECK(c.r.value.status.kind == Playability::Ok);
+    CHECK(c.r.value.sources.empty());                 // nothing progressive anywhere
+}
+TEST_CASE("a removed video stops the walk") {
+    FakeHttp t; t.session().visitorData = "VD";
+    t.queue("player", loadFixtureRaw("player_removed.json"));
+    Cap<Player> c;
+    fetchPlayer(t, {"v"}, newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
     CHECK(t.sent.size() == 1);
-    CHECK(t.lastClientFor("player") == (int)ClientId::TVHTML5);
-    CHECK(has(t.sent[0], "contentPlaybackContext"));     // TV needs the playback context
+    CHECK(c.r.value.status.kind == Playability::Unplayable);
+    CHECK(c.r.value.status.reason == "This video is unavailable");
 }
-TEST_CASE("bothClientsFail") {
-    FakeHttp t;
-    const std::string np = "{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\",\"reason\":\"Sign in\"}}";
-    t.queue("player", np); t.queue("player", np);
-    PlayerCap c;
-    fetchPlayer(t, "vid", newJob(), c.fn());
+TEST_CASE("a scheduled stream stops the walk and keeps its start time") {
+    FakeHttp t; t.session().visitorData = "VD";
+    t.queue("player", "{\"playabilityStatus\":{\"status\":\"LIVE_STREAM_OFFLINE\",\"liveStreamability\":"
+        "{\"liveStreamabilityRenderer\":{\"offlineSlate\":{\"liveStreamOfflineSlateRenderer\":"
+        "{\"scheduledStartTime\":\"1792000000\"}}}}}}");
+    Cap<Player> c;
+    fetchPlayer(t, {"v"}, newJob(), c.fn());
     t.flush();
-    CHECK(c.calls == 1);
-    REQUIRE_FALSE(c.r.streams.ok());
-    CHECK((has(c.r.streams.error->message, "LOGIN_REQUIRED") || has(c.r.streams.error->message, "Sign in")));
-    CHECK(c.r.streams.error->code == ErrorCode::Unavailable);
-    CHECK(t.sent.size() == 2);
+    REQUIRE(c.r.ok());
+    CHECK(t.sent.size() == 1);
+    CHECK(c.r.value.status.kind == Playability::Upcoming);
+    CHECK(c.r.value.status.scheduledStartSecs == 1792000000LL);
 }
-TEST_CASE("streamsAllCiphered") {
-    FakeHttp t;
-    const std::string ciph = "{\"playabilityStatus\":{\"status\":\"OK\"},"
-                             "\"streamingData\":{\"formats\":[{\"itag\":18,\"signatureCipher\":\"s=xx\"}]}}";
-    t.queue("player", ciph); t.queue("player", ciph);
-    PlayerCap c;
-    fetchPlayer(t, "vid", newJob(), c.fn());
+TEST_CASE("signed in: TV is asked for SABR with sts, cpn and playbackContext") {
+    FakeHttp t; t.session().visitorData = "VD"; t.session().bearer = "tok";
+    t.session().playerId = "p1"; t.session().signatureTimestamp = 20737;
+    t.queue("player", kOkEmpty);
+    t.queue("player", kOkEmpty);
+    t.queue("player", kTvSabr);
+    Cap<Player> c;
+    fetchPlayer(t, {"v", WantSabr}, newJob(), c.fn());
     t.flush();
-    CHECK(c.calls == 1);
-    REQUIRE_FALSE(c.r.streams.ok());
-    CHECK(has(c.r.streams.error->message, "decipher"));
-    CHECK(c.r.streams.error->code == ErrorCode::Unsupported);
-    CHECK(t.sent.size() == 2);
+    REQUIRE(c.r.ok());
+    CHECK(t.sentClients == ids({ClientId::VISIONOS, ClientId::ANDROID_VR, ClientId::TVHTML5}));
+    CHECK(t.fetched.empty());                         // sts already known
+    REQUIRE(t.sent.size() == 3);
+    CHECK(has(t.sent[2], "\"signatureTimestamp\":20737"));
+    CHECK(has(t.sent[2], ("\"cpn\":\"" + c.r.value.cpn + "\"").c_str()));
+    CHECK(has(t.sent[2], "contentPlaybackContext"));
+    REQUIRE(c.r.value.sources.size() == 1);
+    CHECK(c.r.value.sources[0].client == ClientId::TVHTML5);
+    CHECK(c.r.value.watchtimeUrl.find("c=TVHTML5") != std::string::npos);   // the account's view
 }
-TEST_CASE("captionsSurviveStreamFailure") {
-    FakeHttp t;
-    const std::string capOnly =
-        "{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\",\"reason\":\"Sign in\"},"
-        "\"captions\":{\"playerCaptionsTracklistRenderer\":{\"captionTracks\":["
-        "{\"baseUrl\":\"https://x/cap\",\"languageCode\":\"en\","
-        "\"name\":{\"simpleText\":\"English\"}}]}}}";
-    t.queue("player", capOnly); t.queue("player", capOnly);
-    PlayerCap c;
-    fetchPlayer(t, "vid", newJob(), c.fn());
+// Review focus: a signed-in user whose needs VISIONOS covers pays neither for the TV
+// request nor for the 3 MB base.js download.
+TEST_CASE("signed in but covered: no TV request and no base.js") {
+    FakeHttp t; t.session().visitorData = "VD"; t.session().bearer = "tok";
+    t.queue("player", loadFixtureRaw("player_visionos_ok.json"));
+    Cap<Player> c;
+    fetchPlayer(t, {"v", WantAdaptive | WantSabr}, newJob(), c.fn());
     t.flush();
-    CHECK(c.calls == 1);
-    CHECK_FALSE(c.r.streams.ok());
-    REQUIRE(c.r.captions.ok());
-    REQUIRE(c.r.captions.value.size() == 1);
-    CHECK(c.r.captions.value[0].language == "en");
+    REQUIRE(c.r.ok());
+    CHECK(t.sentClients == ids({ClientId::VISIONOS}));
+    CHECK(t.fetched.empty());
 }
-TEST_CASE("captionsFailWhenTransportDown") {
-    FakeHttp t;
-    PlayerCap c;
-    fetchPlayer(t, "vid", newJob(), c.fn());
+TEST_CASE("sts is read from base.js once and persisted") {
+    FakeHttp t; t.session().visitorData = "VD"; t.session().bearer = "tok";
+    t.queue(Catalog::kTvPageUrl, "<script src=\"/s/player/22cb88bc/tv-player-ias.vflset/tv-player-ias.js\">");
+    t.queue("https://www.youtube.com/s/player/22cb88bc/player_ias.vflset/en_US/base.js", "x={signatureTimestamp:20737}");
+    t.queue("player", kOkEmpty);
+    t.queue("player", kOkEmpty);
+    t.queue("player", kTvSabr);
+    Cap<Player> c;
+    fetchPlayer(t, {"v", WantSabr}, newJob(), c.fn());
     t.flush();
-    CHECK(c.calls == 1);
-    CHECK_FALSE(c.r.streams.ok());
-    CHECK_FALSE(c.r.captions.ok());
-    CHECK(c.r.streams.error->code == ErrorCode::Transport);
-    CHECK(t.sent.size() == 2);
+    REQUIRE(c.r.ok());
+    REQUIRE(t.fetched.size() == 2);
+    CHECK(t.fetched[0].url == Catalog::kTvPageUrl);
+    REQUIRE_FALSE(t.fetched[0].headers.empty());
+    CHECK(t.fetched[0].headers[0].value == defaultClientInfo(ClientId::TVHTML5).userAgent);
+    CHECK(t.playerJsSets == 1);
+    CHECK(t.session().signatureTimestamp == 20737);
+    CHECK(has(t.sent.back(), "\"signatureTimestamp\":20737"));
+    // A second walk does not download anything again.
+    t.queue("player", kOkEmpty);
+    t.queue("player", kOkEmpty);
+    t.queue("player", kTvSabr);
+    Cap<Player> d;
+    fetchPlayer(t, {"v", WantSabr}, newJob(), d.fn());
+    t.flush();
+    CHECK(t.fetched.size() == 2);
+}
+TEST_CASE("a TV UNPLAYABLE re-reads the player build once") {
+    FakeHttp t; t.session().visitorData = "VD"; t.session().bearer = "tok";
+    t.session().playerId = "old"; t.session().signatureTimestamp = 1;
+    t.queue("player", kOkEmpty);
+    t.queue("player", kOkEmpty);
+    t.queue("player", kUnplayable);
+    t.queue(Catalog::kTvPageUrl, "/s/player/new1/tv-player-ias.vflset/x.js");
+    t.queue("https://www.youtube.com/s/player/new1/player_ias.vflset/en_US/base.js", "signatureTimestamp:2");
+    t.queue("player", kTvSabr);
+    Cap<Player> c;
+    fetchPlayer(t, {"v", WantSabr}, newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    CHECK(t.sentClients == ids({ClientId::VISIONOS, ClientId::ANDROID_VR, ClientId::TVHTML5, ClientId::TVHTML5}));
+    CHECK(has(t.sent.back(), "\"signatureTimestamp\":2"));
+    CHECK(t.session().playerId == "new1");
+    REQUIRE(c.r.value.sources.size() == 1);
+    CHECK(c.r.value.status.kind == Playability::Ok);
+}
+TEST_CASE("empty sources after a TV 401 report 401 so the bearer is refreshed") {
+    FakeHttp t; t.session().visitorData = "VD"; t.session().bearer = "stale";
+    t.session().playerId = "p1"; t.session().signatureTimestamp = 1;
+    t.queue("player", kOkEmpty);
+    t.queue("player", kOkEmpty);
+    t.queue("player", "{}", 401);
+    Cap<Player> c;
+    fetchPlayer(t, {"v", WantSabr}, newJob(), c.fn());
+    t.flush();
+    REQUIRE_FALSE(c.r.ok());
+    CHECK(c.r.error->httpStatus == 401);
+}
+TEST_CASE("no answer at all fails with the transport error") {
+    FakeHttp t; t.session().visitorData = "VD";
+    t.queue("player", "", 0);
+    t.queue("player", "", 0);
+    t.queue("player", "", 0);
+    Cap<Player> c;
+    fetchPlayer(t, {"v"}, newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.calls == 1);
+    REQUIRE_FALSE(c.r.ok());
+    CHECK(c.r.error->code == ErrorCode::Transport);
+}
+TEST_CASE("want 0 asks one client for metadata only") {
+    FakeHttp t; t.session().visitorData = "VD";
+    t.queue("player", loadFixtureRaw("player_visionos_ok.json"));
+    Cap<Player> c;
+    fetchPlayer(t, {"v", 0}, newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    CHECK(t.sent.size() == 1);
+    CHECK(c.r.value.captions.size() == 2);
+}
+TEST_CASE("a walk canceled between steps delivers nothing") {
+    FakeHttp t; t.session().visitorData = "VD";
+    t.queue("player", kOkEmpty);
+    t.queue("player", kOkEmpty);
+    JobToken job = newJob();
+    Cap<Player> c;
+    fetchPlayer(t, {"v"}, job, c.fn());
+    t.flushOne(0);                                    // VISIONOS answers; ANDROID_VR goes out
+    job->canceled = true;
+    t.flush();
+    CHECK(c.calls == 0);
+    CHECK(t.sent.size() <= 2);
+}
+TEST_CASE("HLS still missing after VISIONOS: IOS is asked, without a playback context") {
+    FakeHttp t; t.session().visitorData = "VD";
+    t.queue("player", loadFixtureRaw("player_vr_ok.json"));          // as VISIONOS: no HLS
+    t.queue("player", kOkEmpty);
+    t.queue("player", "{\"playabilityStatus\":{\"status\":\"OK\"},\"streamingData\":"
+                      "{\"hlsManifestUrl\":\"https://manifest.example/ios.m3u8\"}}");
+    Cap<Player> c;
+    fetchPlayer(t, {"v", WantAdaptive | WantHls}, newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    CHECK(t.sentClients == ids({ClientId::VISIONOS, ClientId::ANDROID_VR, ClientId::IOS}));
+    REQUIRE(c.r.value.sources.size() == 2);
+    CHECK(c.r.value.sources[1].client == ClientId::IOS);
+    CHECK(c.r.value.sources[1].hlsUrl == "https://manifest.example/ios.m3u8");
+    CHECK_FALSE(has(t.sent[2], "playbackContext"));
 }
 
 // ---- fetchVideoList ----
@@ -609,4 +792,82 @@ TEST_CASE("dislikesVideoIdIsEncoded") {
     fetchDislikes(http, "a&b=c", newJob(), c.fn());
     http.flush();
     CHECK(has(http.lastGetUrl(), "videoId=a%26b%3Dc"));
+}
+
+// Review focus: fmt=json3 is set whatever shape the server's URL has; the rest stays byte-exact.
+TEST_CASE("json3Url") {
+    CHECK(json3Url("https://y/api/timedtext?v=a&lang=en") == "https://y/api/timedtext?v=a&lang=en&fmt=json3");
+    CHECK(json3Url("https://y/api/timedtext?v=a&fmt=srv3&lang=en") == "https://y/api/timedtext?v=a&fmt=json3&lang=en");
+    CHECK(json3Url("https://y/api/timedtext?fmt=vtt") == "https://y/api/timedtext?fmt=json3");
+    CHECK(json3Url("https://y/api/timedtext") == "https://y/api/timedtext?fmt=json3");
+    CHECK(json3Url("https://y/t?v=a&xfmt=1&sig=%2F") == "https://y/t?v=a&xfmt=1&sig=%2F&fmt=json3");
+}
+TEST_CASE("captions fetch json3 cues") {
+    FakeHttp t;
+    const std::string url = "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en";
+    t.queue(url + "&fmt=json3", loadFixtureRaw("captions_manual.json3"));
+    CaptionTrack track; track.url = url; track.language = "en";
+    Cap<std::vector<Cue>> c;
+    fetchCaptions(t, track, newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    CHECK(c.r.value.size() == 3);
+    REQUIRE(t.fetched.size() == 1);
+    CHECK(t.fetched[0].url == url + "&fmt=json3");
+}
+TEST_CASE("captions: an empty 200 is no cues, a 429 is an error") {
+    FakeHttp t;
+    t.queue("https://y/t?fmt=json3", "");
+    t.queue("https://y/u?fmt=json3", "<html>Sorry</html>", 429);
+    CaptionTrack a; a.url = "https://y/t";
+    CaptionTrack b; b.url = "https://y/u";
+    Cap<std::vector<Cue>> ca, cb;
+    fetchCaptions(t, a, newJob(), ca.fn());
+    fetchCaptions(t, b, newJob(), cb.fn());
+    t.flush();
+    REQUIRE(ca.r.ok());
+    CHECK(ca.r.value.empty());
+    REQUIRE_FALSE(cb.r.ok());
+    CHECK(cb.r.error->httpStatus == 429);
+}
+
+TEST_CASE("sign-in QR from a data URL") {
+    FakeHttp t; t.queue("mdx/handoff", loadFixtureRaw("mdx_handoff.json"));
+    Cap<std::string> c;
+    fetchSignInQr(t, "U-1", newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    CHECK(c.r.value.compare(0, 8, "\x89PNG\r\n\x1a\n") == 0);
+    CHECK(t.lastClientFor("mdx/handoff") == (int) ClientId::TVHTML5);
+    CHECK(has(t.sent[0], "\"userCode\":\"U-1\""));
+}
+TEST_CASE("sign-in QR from an image URL") {
+    FakeHttp t;
+    t.queue("mdx/handoff", "{\"rapidQrRenderer\":{\"qrCodeRenderer\":{\"qrCodeImage\":{\"thumbnails\":"
+                           "[{\"url\":\"https://i.ytimg.com/qr.png\"}]}}}}");
+    t.queue("https://i.ytimg.com/qr.png", std::string("\x89PNG\r\n\x1a\nrest", 12));
+    Cap<std::string> c;
+    fetchSignInQr(t, "U", newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    CHECK(c.r.value.size() == 12);
+}
+// Review focus: a broken answer must never hand garbage to an image decoder.
+TEST_CASE("sign-in QR: garbage is refused") {
+    FakeHttp t;
+    t.queue("mdx/handoff", "{\"rapidQrRenderer\":{\"qrCodeRenderer\":{\"qrCodeImage\":{\"thumbnails\":"
+                           "[{\"url\":\"data:image/png;base64,not*base64\"}]}}}}");
+    t.queue("mdx/handoff", "{\"rapidQrRenderer\":{\"qrCodeRenderer\":{\"qrCodeImage\":{\"thumbnails\":"
+                           "[{\"url\":\"data:image/png;base64,aGVsbG8=\"}]}}}}");   // valid base64, not a PNG
+    t.queue("mdx/handoff", "{}");
+    Cap<std::string> a, b, c;
+    fetchSignInQr(t, "U", newJob(), a.fn());
+    fetchSignInQr(t, "U", newJob(), b.fn());
+    fetchSignInQr(t, "U", newJob(), c.fn());
+    t.flush();
+    CHECK_FALSE(a.r.ok());
+    CHECK(a.r.value.empty());
+    CHECK_FALSE(b.r.ok());
+    CHECK(b.r.value.empty());
+    CHECK_FALSE(c.r.ok());
 }

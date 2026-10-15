@@ -9,7 +9,6 @@ namespace yt {
 namespace detail {
 
 namespace {
-long httpStatusOf(const PlayerInfo &p) { return p.streams.error ? p.streams.error->httpStatus : 0; }
 template <class T> long httpStatusOf(const Result<T> &r) { return r.error ? r.error->httpStatus : 0; }
 
 template <class Arg>
@@ -81,12 +80,19 @@ void Engine::setup()
         if (!baseUrlOverride.empty()) ho.baseUrl = baseUrlOverride;
         auto hc = std::make_shared<net::HttpClient>(loop, *transport, ho);
         hc->setVisitorSink([this](const std::string &vd) { state.visitorData = vd; notifyState(); });
+        hc->setPlayerJsSink([this](const std::string &id, int sts) {
+            state.playerId = id;
+            state.signatureTimestamp = sts;
+            notifyState();
+        });
         http = hc;
     }
     Session &s = http->session();
     s.hl = state.hl;
     s.gl = state.gl;
     s.visitorData = state.visitorData;
+    s.playerId = state.playerId;
+    s.signatureTimestamp = state.signatureTimestamp;
     for (const auto &kv : opts.clients) s.clients[(int) kv.first] = kv.second;
     signedInFlag = signedIn();
 }
@@ -256,11 +262,19 @@ Job Client::comments(std::string videoId, std::string page, Callback<CommentPage
     }, std::move(done));
 }
 
-Job Client::player(std::string videoId, std::function<void(const PlayerInfo &)> done)
+Job Client::player(PlayerRequest req, Callback<Player> done)
 {
-    return m_engine->start<PlayerInfo>([videoId](core::IHttp &h, const core::JobToken &t, std::function<void(const PlayerInfo &)> d) {
-        core::fetchPlayer(h, videoId, t, std::move(d));
+    return m_engine->start<Result<Player>>([req](core::IHttp &h, const core::JobToken &t, Callback<Player> d) {
+        core::fetchPlayer(h, req, t, std::move(d));
     }, std::move(done));
+}
+
+Job Client::captions(CaptionTrack track, Callback<std::vector<Cue>> done)
+{
+    return m_engine->start<Result<std::vector<Cue>>>(
+        [track](core::IHttp &h, const core::JobToken &t, Callback<std::vector<Cue>> d) {
+            core::fetchCaptions(h, track, t, std::move(d));
+        }, std::move(done));
 }
 
 Job Client::channel(std::string channelId, Callback<Channel> done)

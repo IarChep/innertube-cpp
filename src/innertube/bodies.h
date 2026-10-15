@@ -16,10 +16,12 @@ std::string browse(std::string_view browseId, std::string_view params, std::stri
 std::string search(std::string_view query, std::string_view params);
 std::string nextVideo(std::string_view videoId);
 std::string nextContinuation(std::string_view token);
-// withPlaybackContext adds playbackContext.contentPlaybackContext (html5Preference).
-// TVHTML5 needs it — an authed TV /player without it returns "UNPLAYABLE: The page
-// needs to be reloaded". Off for the mobile player clients (IOS/ANDROID_VR).
-std::string player(std::string_view videoId, bool withPlaybackContext = false);
+// tv=true adds playbackContext.contentPlaybackContext (html5Preference, and the
+// signatureTimestamp when known) and the playback nonce: TVHTML5 needs them — without
+// them an authed TV /player answers "UNPLAYABLE: The page needs to be reloaded". The
+// mobile/vision clients stay minimal.
+struct PlayerBody { bool tv = false; std::string cpn; int signatureTimestamp = 0; };
+std::string player(std::string_view videoId, const PlayerBody &b = {});
 std::string resolveUrl(std::string_view url);
 std::string accountsList();                            // {accountReadMask:{returnOwner:true}}
 std::string subscribeChannels(std::string_view channelId);
@@ -29,6 +31,9 @@ std::string createComment(std::string_view createCommentParams, std::string_view
 // add=true → ACTION_ADD_VIDEO (id = videoId); add=false → ACTION_REMOVE_VIDEO
 // (id = the per-entry setVideoId position handle). playlistId is WL|LL|PL….
 std::string editPlaylist(std::string_view playlistId, bool add, std::string_view id);
+// {handoffQrParams:{rapidQrParams:{qrPresetStyle, userCode, rapidQrFeature}}} — the TV
+// sign-in QR for a device code (mdx/handoff).
+std::string mdxHandoff(std::string_view userCode);
 }
 }
 #endif
