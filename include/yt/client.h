@@ -23,6 +23,7 @@
 #include <yt/transport.h>
 #include <yt/types.h>
 #include <functional>
+#include <future>
 #include <map>
 #include <memory>
 #include <string>
@@ -60,6 +61,12 @@ private:
     std::shared_ptr<detail::JobHandle> m_h;
 };
 
+// Every group method has two forms: with a callback (returns a Job; the contract above) and
+// without one (returns a std::future, fulfilled from the engine thread without
+// ClientOptions::deliver; with ownThread == false someone must keep calling runOnce() or
+// get() never returns, and get() on the engine thread itself — inside a callback — never
+// returns either). A Client destroyed first releases the future with ErrorCode::Canceled.
+
 // Videos: a watch page, every playable source, captions and dislike counts. `link` is
 // anything that names a video: an 11-character id or a watch / youtu.be / shorts / live /
 // embed URL (yt::Link). Another kind of link fails with ErrorCode::InvalidArgument.
@@ -70,6 +77,11 @@ public:
     Job player(std::string link, unsigned want, Callback<Player> done);  // want: Want* flags; 0 = metadata only
     Job captions(CaptionTrack track, Callback<std::vector<Cue>> done);   // a track from Player::captions
     Job votes(std::string link, Callback<Votes> done);                   // Return YouTube Dislike counts
+    std::future<Result<WatchResult>> get(std::string link);
+    std::future<Result<Player>> player(std::string link);
+    std::future<Result<Player>> player(std::string link, unsigned want);
+    std::future<Result<std::vector<Cue>>> captions(CaptionTrack track);
+    std::future<Result<Votes>> votes(std::string link);
     Videos(const Videos &) = delete;
     Videos &operator=(const Videos &) = delete;
 private:
@@ -86,6 +98,11 @@ public:
     Job channels(std::string query, Callback<Page<Channel>> done);
     Job playlists(std::string query, Callback<Page<Playlist>> done);
     Job suggestions(std::string prefix, Callback<std::vector<std::string>> done);
+    std::future<Result<Page<Video>>> videos(std::string query);
+    std::future<Result<Page<Video>>> videos(std::string query, SearchOptions options);
+    std::future<Result<Page<Channel>>> channels(std::string query);
+    std::future<Result<Page<Playlist>>> playlists(std::string query);
+    std::future<Result<std::vector<std::string>>> suggestions(std::string prefix);
     Search(const Search &) = delete;
     Search &operator=(const Search &) = delete;
 private:
@@ -101,6 +118,9 @@ public:
     Job get(std::string link, Callback<Channel> done);            // signed in: `subscribed` is the viewer's state
     Job videos(std::string link, Callback<Page<Video>> done);     // the Videos tab
     Job playlists(std::string link, Callback<Page<Playlist>> done);
+    std::future<Result<Channel>> get(std::string link);
+    std::future<Result<Page<Video>>> videos(std::string link);
+    std::future<Result<Page<Playlist>>> playlists(std::string link);
     Channels(const Channels &) = delete;
     Channels &operator=(const Channels &) = delete;
 private:
@@ -114,6 +134,7 @@ private:
 class Playlists {
 public:
     Job videos(std::string link, Callback<Page<Video>> done);
+    std::future<Result<Page<Video>>> videos(std::string link);
     Playlists(const Playlists &) = delete;
     Playlists &operator=(const Playlists &) = delete;
 private:
@@ -129,6 +150,10 @@ public:
     Job subscriptions(Callback<Page<Video>> done);
     Job history(Callback<Page<Video>> done);
     Job topic(std::string id, Callback<Page<Video>> done);        // an id from yt::topicFeeds()
+    std::future<Result<Page<Video>>> home();
+    std::future<Result<Page<Video>>> subscriptions();
+    std::future<Result<Page<Video>>> history();
+    std::future<Result<Page<Video>>> topic(std::string id);
     Feeds(const Feeds &) = delete;
     Feeds &operator=(const Feeds &) = delete;
 private:
@@ -142,6 +167,8 @@ class Comments {
 public:
     Job list(std::string link, Callback<Page<Comment>> done);
     Job post(std::string link, std::string text, Callback<Done> done);   // needs sign-in
+    std::future<Result<Page<Comment>>> list(std::string link);
+    std::future<Result<Done>> post(std::string link, std::string text);
     Comments(const Comments &) = delete;
     Comments &operator=(const Comments &) = delete;
 private:
@@ -162,6 +189,14 @@ public:
     Job unsave(std::string videoLink, std::string playlistLink, Callback<Done> done);
     Job playlists(Callback<Page<Playlist>> done);                 // the user's own playlists
     Job subscriptions(Callback<Page<Channel>> done);              // the channels the user follows
+    std::future<Result<AccountInfo>> info();
+    std::future<Result<Done>> rate(std::string videoLink, Rating rating);
+    std::future<Result<Done>> subscribe(std::string channelLink);
+    std::future<Result<Done>> unsubscribe(std::string channelLink);
+    std::future<Result<Done>> save(std::string videoLink, std::string playlistLink);
+    std::future<Result<Done>> unsave(std::string videoLink, std::string playlistLink);
+    std::future<Result<Page<Playlist>>> playlists();
+    std::future<Result<Page<Channel>>> subscriptions();
     Account(const Account &) = delete;
     Account &operator=(const Account &) = delete;
 private:
@@ -192,6 +227,10 @@ public:
     Job more(const Cursor<Channel> &next, Callback<Page<Channel>> done);
     Job more(const Cursor<Playlist> &next, Callback<Page<Playlist>> done);
     Job more(const Cursor<Comment> &next, Callback<Page<Comment>> done);
+    std::future<Result<Page<Video>>> more(const Cursor<Video> &next);
+    std::future<Result<Page<Channel>>> more(const Cursor<Channel> &next);
+    std::future<Result<Page<Playlist>>> more(const Cursor<Playlist> &next);
+    std::future<Result<Page<Comment>>> more(const Cursor<Comment> &next);
 
     void setLocale(std::string hl, std::string gl);   // empty keeps the current value; clears caches
     void runOnce(int maxWaitMs);                       // only when ownThread == false

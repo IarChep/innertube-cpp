@@ -8,6 +8,13 @@
 namespace yt {
 namespace detail {
 
+namespace {
+thread_local int tDirect = 0;                        // nesting depth of DirectDelivery on this thread
+}
+DirectDelivery::DirectDelivery() { ++tDirect; }
+DirectDelivery::~DirectDelivery() { --tDirect; }
+bool directDelivery() { return tDirect > 0; }
+
 std::shared_ptr<Engine> Engine::boot(std::shared_ptr<Engine> e)
 {
     if (!e->opts.ownThread) {
@@ -87,7 +94,7 @@ void Engine::deliver(const std::shared_ptr<JobHandle> &h, std::function<void()> 
         if (final) h->finished = true;
         fn();
     };
-    if (opts.deliver) opts.deliver(std::move(task));
+    if (opts.deliver && !h->direct) opts.deliver(std::move(task));
     else task();
 }
 
@@ -217,6 +224,23 @@ Job Client::more(const Cursor<Comment> &next, Callback<Page<Comment>> done)
     return m_engine->start<Result<Page<Comment>>>([next](core::IHttp &h, const core::JobToken &t, Callback<Page<Comment>> d) {
         core::fetchMore(h, next, t, std::move(d));
     }, std::move(done));
+}
+
+std::future<Result<Page<Video>>> Client::more(const Cursor<Video> &next)
+{
+    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return more(next, std::move(cb)); });
+}
+std::future<Result<Page<Channel>>> Client::more(const Cursor<Channel> &next)
+{
+    return detail::futureOf<Page<Channel>>([&](Callback<Page<Channel>> cb) { return more(next, std::move(cb)); });
+}
+std::future<Result<Page<Playlist>>> Client::more(const Cursor<Playlist> &next)
+{
+    return detail::futureOf<Page<Playlist>>([&](Callback<Page<Playlist>> cb) { return more(next, std::move(cb)); });
+}
+std::future<Result<Page<Comment>>> Client::more(const Cursor<Comment> &next)
+{
+    return detail::futureOf<Page<Comment>>([&](Callback<Page<Comment>> cb) { return more(next, std::move(cb)); });
 }
 
 namespace testing {

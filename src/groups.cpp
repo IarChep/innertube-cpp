@@ -251,4 +251,122 @@ Job Account::subscriptions(Callback<Page<Channel>> done)
     }, std::move(done));
 }
 
+// ---- the future forms: each is its callback form inside futureOf ----
+
+std::future<Result<WatchResult>> Videos::get(std::string link)
+{
+    return detail::futureOf<WatchResult>([&](Callback<WatchResult> cb) { return get(std::move(link), std::move(cb)); });
+}
+std::future<Result<Player>> Videos::player(std::string link)
+{
+    return detail::futureOf<Player>([&](Callback<Player> cb) { return player(std::move(link), std::move(cb)); });
+}
+std::future<Result<Player>> Videos::player(std::string link, unsigned want)
+{
+    return detail::futureOf<Player>([&](Callback<Player> cb) { return player(std::move(link), want, std::move(cb)); });
+}
+std::future<Result<std::vector<Cue>>> Videos::captions(CaptionTrack track)
+{
+    return detail::futureOf<std::vector<Cue>>([&](Callback<std::vector<Cue>> cb) { return captions(std::move(track), std::move(cb)); });
+}
+std::future<Result<Votes>> Videos::votes(std::string link)
+{
+    return detail::futureOf<Votes>([&](Callback<Votes> cb) { return votes(std::move(link), std::move(cb)); });
+}
+std::future<Result<Page<Video>>> Search::videos(std::string query)
+{
+    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return videos(std::move(query), std::move(cb)); });
+}
+std::future<Result<Page<Video>>> Search::videos(std::string query, SearchOptions options)
+{
+    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return videos(std::move(query), options, std::move(cb)); });
+}
+std::future<Result<Page<Channel>>> Search::channels(std::string query)
+{
+    return detail::futureOf<Page<Channel>>([&](Callback<Page<Channel>> cb) { return channels(std::move(query), std::move(cb)); });
+}
+std::future<Result<Page<Playlist>>> Search::playlists(std::string query)
+{
+    return detail::futureOf<Page<Playlist>>([&](Callback<Page<Playlist>> cb) { return playlists(std::move(query), std::move(cb)); });
+}
+std::future<Result<std::vector<std::string>>> Search::suggestions(std::string prefix)
+{
+    return detail::futureOf<std::vector<std::string>>(
+        [&](Callback<std::vector<std::string>> cb) { return suggestions(std::move(prefix), std::move(cb)); });
+}
+std::future<Result<Channel>> Channels::get(std::string link)
+{
+    return detail::futureOf<Channel>([&](Callback<Channel> cb) { return get(std::move(link), std::move(cb)); });
+}
+std::future<Result<Page<Video>>> Channels::videos(std::string link)
+{
+    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return videos(std::move(link), std::move(cb)); });
+}
+std::future<Result<Page<Playlist>>> Channels::playlists(std::string link)
+{
+    return detail::futureOf<Page<Playlist>>([&](Callback<Page<Playlist>> cb) { return playlists(std::move(link), std::move(cb)); });
+}
+std::future<Result<Page<Video>>> Playlists::videos(std::string link)
+{
+    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return videos(std::move(link), std::move(cb)); });
+}
+std::future<Result<Page<Video>>> Feeds::home()
+{
+    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return home(std::move(cb)); });
+}
+std::future<Result<Page<Video>>> Feeds::subscriptions()
+{
+    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return subscriptions(std::move(cb)); });
+}
+std::future<Result<Page<Video>>> Feeds::history()
+{
+    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return history(std::move(cb)); });
+}
+std::future<Result<Page<Video>>> Feeds::topic(std::string id)
+{
+    return detail::futureOf<Page<Video>>([&](Callback<Page<Video>> cb) { return topic(std::move(id), std::move(cb)); });
+}
+std::future<Result<Page<Comment>>> Comments::list(std::string link)
+{
+    return detail::futureOf<Page<Comment>>([&](Callback<Page<Comment>> cb) { return list(std::move(link), std::move(cb)); });
+}
+std::future<Result<Done>> Comments::post(std::string link, std::string text)
+{
+    return detail::futureOf<Done>([&](Callback<Done> cb) { return post(std::move(link), std::move(text), std::move(cb)); });
+}
+std::future<Result<AccountInfo>> Account::info()
+{
+    return detail::futureOf<AccountInfo>([&](Callback<AccountInfo> cb) { return info(std::move(cb)); });
+}
+std::future<Result<Done>> Account::rate(std::string videoLink, Rating rating)
+{
+    return detail::futureOf<Done>([&](Callback<Done> cb) { return rate(std::move(videoLink), rating, std::move(cb)); });
+}
+std::future<Result<Done>> Account::subscribe(std::string channelLink)
+{
+    return detail::futureOf<Done>([&](Callback<Done> cb) { return subscribe(std::move(channelLink), std::move(cb)); });
+}
+std::future<Result<Done>> Account::unsubscribe(std::string channelLink)
+{
+    return detail::futureOf<Done>([&](Callback<Done> cb) { return unsubscribe(std::move(channelLink), std::move(cb)); });
+}
+std::future<Result<Done>> Account::save(std::string videoLink, std::string playlistLink)
+{
+    return detail::futureOf<Done>(
+        [&](Callback<Done> cb) { return save(std::move(videoLink), std::move(playlistLink), std::move(cb)); });
+}
+std::future<Result<Done>> Account::unsave(std::string videoLink, std::string playlistLink)
+{
+    return detail::futureOf<Done>(
+        [&](Callback<Done> cb) { return unsave(std::move(videoLink), std::move(playlistLink), std::move(cb)); });
+}
+std::future<Result<Page<Playlist>>> Account::playlists()
+{
+    return detail::futureOf<Page<Playlist>>([&](Callback<Page<Playlist>> cb) { return playlists(std::move(cb)); });
+}
+std::future<Result<Page<Channel>>> Account::subscriptions()
+{
+    return detail::futureOf<Page<Channel>>([&](Callback<Page<Channel>> cb) { return subscriptions(std::move(cb)); });
+}
+
 }

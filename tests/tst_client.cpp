@@ -8,6 +8,8 @@
 #include "faketransport.h"
 #include "testutil.h"
 #include <atomic>
+#include <chrono>
+#include <future>
 #include <map>
 #include <mutex>
 #include <random>
@@ -324,4 +326,63 @@ TEST_CASE("a job is inactive once its client is gone") {
     CHECK(j.active());
     c.reset();
     CHECK_FALSE(j.active());
+}
+namespace {
+template <class F> bool ready(F &f) { return f.wait_for(std::chrono::seconds(0)) == std::future_status::ready; }
+}
+
+TEST_CASE("the future form delivers the result") {
+    auto f = std::make_shared<FakeHttp>(); f->queue("browse", loadFixtureRaw("browse_feed.json"));
+    auto c = mk(f);
+    std::future<yt::Result<yt::Page<yt::Video>>> home = c->feeds().home();
+    CHECK_FALSE(ready(home));                         // only posted, like the callback form
+    for (int i = 0; i < 8 && !ready(home); ++i) { c->runOnce(0); f->flush(); }
+    REQUIRE(ready(home));
+    const yt::Result<yt::Page<yt::Video>> r = home.get();
+    REQUIRE(r.ok());
+    CHECK(r.value.items.size() == 2);
+}
+// Review focus: a GUI blocks its own (delivery) thread on get(): the result must not wait
+// for that executor.
+TEST_CASE("the future form does not go through the executor") {
+    auto f = std::make_shared<FakeHttp>(); f->queue("browse", loadFixtureRaw("browse_feed.json"));
+    QueueExec ex;
+    yt::ClientOptions o; o.deliver = ex.exec();
+    auto c = mk(f, o);
+    auto home = c->feeds().home();
+    for (int i = 0; i < 8 && !ready(home); ++i) { c->runOnce(0); f->flush(); }
+    CHECK(ready(home));
+    CHECK(ex.size() == 0);                            // nothing waits for the executor
+}
+// Review focus: a future must never hang: destroying the Client releases it as Canceled.
+TEST_CASE("destroying the client releases a pending future as Canceled") {
+    auto f = std::make_shared<FakeHttp>();
+    auto c = mk(f);
+    auto home = c->feeds().home();
+    c->runOnce(0);                                    // the request is in flight in FakeHttp
+    c.reset();
+    f.reset();                                        // the transport drops its pending replies
+    REQUIRE(ready(home));
+    const auto r = home.get();
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error->code == yt::ErrorCode::Canceled);
+}
+TEST_CASE("futures for links, pages and more") {
+    auto f = std::make_shared<FakeHttp>();
+    f->queue("browse", loadFixtureRaw("browse_feed.json"));
+    f->queue("browse", loadFixtureRaw("browse_feed.json"));
+    auto c = mk(f);
+    auto bad = c->videos().get("not a link");
+    auto first = c->playlists().videos("PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI");
+    for (int i = 0; i < 8 && !(ready(bad) && ready(first)); ++i) { c->runOnce(0); f->flush(); }
+    REQUIRE(ready(bad));
+    CHECK(bad.get().error->code == yt::ErrorCode::InvalidArgument);
+    REQUIRE(ready(first));
+    const auto page = first.get();
+    REQUIRE(page.ok());
+    CHECK(f->sent[0] == "{\"browseId\":\"VLPLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI\"}");
+    auto second = c->more(page.value.next);
+    for (int i = 0; i < 8 && !ready(second); ++i) { c->runOnce(0); f->flush(); }
+    REQUIRE(ready(second));
+    CHECK(second.get().ok());
 }

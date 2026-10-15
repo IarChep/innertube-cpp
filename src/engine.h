@@ -9,6 +9,7 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -29,6 +30,37 @@ struct JobHandle {
     std::weak_ptr<Engine> engine;
     std::shared_ptr<Gate> gate;                      // closed = the Client is gone: never delivered
     std::atomic<bool> finished{false};
+    bool direct = false;                             // future form: delivered without the executor
+};
+
+// While alive on a thread, the Job that thread starts is a future-form call: its result is
+// delivered straight from the engine thread, never through ClientOptions::deliver — a GUI
+// that blocks its own UI (delivery) thread on future::get() would otherwise wait forever.
+struct DirectDelivery {
+    DirectDelivery();
+    ~DirectDelivery();
+    DirectDelivery(const DirectDelivery &) = delete;
+    DirectDelivery &operator=(const DirectDelivery &) = delete;
+};
+bool directDelivery();                               // inside a DirectDelivery scope on this thread
+
+// The promise behind a future-form call. Fulfilled once, from the engine thread; if the
+// call dies undelivered (Client destroyed, request dropped) the last owner releases the
+// future with ErrorCode::Canceled instead of leaving get() blocked forever.
+template <class T> struct PromiseBox {
+    std::promise<Result<T>> promise;
+    std::atomic<bool> set{false};
+    void fulfil(const Result<T> &r)
+    {
+        if (!set.exchange(true)) promise.set_value(r);
+    }
+    ~PromiseBox()
+    {
+        if (set.exchange(true)) return;
+        Result<T> r;
+        r.error = Error{ErrorCode::Canceled, "the client was destroyed before the call completed", 0};
+        promise.set_value(r);
+    }
 };
 
 struct Engine : std::enable_shared_from_this<Engine> {
@@ -71,6 +103,7 @@ struct Engine : std::enable_shared_from_this<Engine> {
         auto h = std::make_shared<JobHandle>();
         h->engine = weak_from_this();
         h->gate = gate;
+        h->direct = directDelivery();
         return h;
     }
 
@@ -149,6 +182,18 @@ Job Engine::start(std::function<void(core::IHttp &, const core::JobToken &, std:
         e->ensureBearer([e, h, chain, cb, gen]() { runAttempt<Arg>(e, h, chain, cb, false, gen); });
     });
     return makeJob(h);
+}
+
+
+// The future form of an operation: `start` is the callback form, started inside a
+// DirectDelivery scope.
+template <class T, class Start> std::future<Result<T>> futureOf(Start start)
+{
+    auto box = std::make_shared<PromiseBox<T>>();
+    std::future<Result<T>> f = box->promise.get_future();
+    DirectDelivery direct;
+    start(Callback<T>([box](const Result<T> &r) { box->fulfil(r); }));
+    return f;
 }
 
 }
