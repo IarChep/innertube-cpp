@@ -51,6 +51,7 @@ struct Engine : std::enable_shared_from_this<Engine> {
     Clock::time_point bearerExpiry{};
     uint64_t authGen = 0;                            // bumped on every identity change (sign-in/out)
     uint64_t bearerGen = 0;                          // bumped whenever a bearer is installed or dropped
+    uint64_t revokedGen = 0;                         // authGen right after an invalid_grant sign-out
     bool refreshing = false;
     std::vector<std::function<void()>> afterRefresh;
     std::shared_ptr<JobHandle> signInJob;            // the device-code flow in progress
@@ -95,7 +96,8 @@ struct Engine : std::enable_shared_from_this<Engine> {
     void startSignIn(const std::shared_ptr<JobHandle> &h, std::function<void(const DeviceCode &)> onCode,
                      Callback<Done> onDone);
     void pollToken(const std::shared_ptr<JobHandle> &h, Callback<Done> onDone);
-    void signOut();
+    void signOut();                                  // cancels a pending sign-in, then dropIdentity()
+    void dropIdentity();                             // tokens, account, caches; onStateChanged
 };
 
 }

@@ -342,3 +342,60 @@ TEST_CASE("a failed QR request does not stop the sign-in") {
     CHECK(codes == 1);
     CHECK(code.qrPng.empty());
 }
+
+// A revoked refresh token (invalid_grant) stayed installed: every authed call refreshed
+// again, failed the same way, and the client never reported itself signed out.
+TEST_CASE("invalid_grant on refresh signs out and fails the waiting call") {
+    Rig r("R");
+    r.f->queue(yt::Catalog::kTokenUrl, "{\"error\":\"invalid_grant\",\"error_description\":\"Token has been expired or revoked.\"}", 400);
+    bool called = false; yt::Result<yt::VideoPage> got;
+    r.c->browse({"FEsubscriptions", "", ""}, [&](const yt::Result<yt::VideoPage> &x) { got = x; called = true; });
+    r.pump();
+    REQUIRE(called);
+    REQUIRE_FALSE(got.ok());
+    CHECK(got.error->code == yt::ErrorCode::AuthRequired);
+    CHECK(r.f->sent.empty());                         // the browse never went out
+    CHECK_FALSE(r.c->auth().signedIn());
+    REQUIRE_FALSE(r.states.empty());
+    CHECK(r.states.back().refreshToken.empty());
+    // The next call runs signed out instead of refreshing a dead token again.
+    r.f->queue("browse", "{}");
+    r.c->browse({"FEwhat_to_watch", "", ""}, [](const yt::Result<yt::VideoPage> &) {});
+    r.pump();
+    CHECK(r.f->sentForm.size() == 1);
+    CHECK(r.f->sent.size() == 1);
+}
+// The 401-retry path waits on the same refresh: it must fail like a fresh call, not run
+// signed out with whatever the anonymous request returns.
+TEST_CASE("a 401 whose forced refresh is revoked fails with AuthRequired") {
+    Rig r("R");
+    r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A1\",\"expires_in\":3600}");
+    r.f->queue("browse", "{\"error\":{}}", 401);
+    r.f->queue(yt::Catalog::kTokenUrl, "{\"error\":\"invalid_grant\"}", 400);
+    r.f->queue("browse", "{}");
+    bool called = false; yt::Result<yt::VideoPage> got;
+    r.c->browse({"FEsubscriptions", "", ""}, [&](const yt::Result<yt::VideoPage> &x) { got = x; called = true; });
+    r.pump();
+    REQUIRE(called);
+    REQUIRE_FALSE(got.ok());
+    CHECK(got.error->code == yt::ErrorCode::AuthRequired);
+    CHECK(r.f->sent.size() == 1);                     // no anonymous re-run
+    CHECK_FALSE(r.c->auth().signedIn());
+}
+// A sign-in started to replace a revoked account must survive the revocation: the
+// sign-out path used to cancel it silently (no onDone, polling stopped).
+TEST_CASE("invalid_grant does not cancel a sign-in in progress") {
+    Rig r("R_OLD");
+    r.f->queue(yt::Catalog::kDeviceCodeUrl, "{\"device_code\":\"D\",\"user_code\":\"U\",\"verification_url\":\"V\",\"interval\":1}");
+    r.f->queue(yt::Catalog::kTokenUrl, "{\"error\":\"invalid_grant\"}", 400);   // the old account's refresh
+    r.f->queue(yt::Catalog::kTokenUrl, "{\"access_token\":\"A\",\"refresh_token\":\"R_NEW\",\"expires_in\":3600}");
+    r.f->queue("browse", "{}");
+    bool done = false; yt::Result<yt::Done> res;
+    r.c->auth().signIn([](const yt::DeviceCode &) {}, [&](const yt::Result<yt::Done> &x) { res = x; done = true; });
+    r.c->browse({"FEsubscriptions", "", ""}, [](const yt::Result<yt::VideoPage> &) {});
+    r.pumpFor(5000, [&] { return done; });
+    REQUIRE(done);
+    CHECK(res.ok());
+    CHECK(r.c->auth().signedIn());
+    CHECK(r.states.back().refreshToken == "R_NEW");
+}

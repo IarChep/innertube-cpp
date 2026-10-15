@@ -32,6 +32,13 @@ void Engine::refreshBearer()
     const uint64_t gen = authGen;                    // the identity this refresh is for
     core::oauthRefresh(*http, state.refreshToken, core::newJob(), [this, gen](const core::TokenGrant &g) {
         refreshing = false;
+        if (gen == authGen && g.error == "invalid_grant") {
+            // Revoked refresh token (password change, "remove access"): drop the session,
+            // or every authed call would refresh again and fail the same way. A sign-in in
+            // progress is a new identity and carries on.
+            dropIdentity();
+            revokedGen = authGen;
+        }
         // A sign-out / new sign-in happened meanwhile: the grant belongs to the old
         // identity and must not be installed.
         if (gen == authGen && !g.accessToken.empty() && http) {
@@ -137,6 +144,11 @@ void Engine::signOut()
 {
     if (signInJob) { signInJob->token->canceled = true; signInJob.reset(); }
     if (pollTimer) { loop.cancelTimer(pollTimer); pollTimer = 0; }
+    dropIdentity();
+}
+
+void Engine::dropIdentity()
+{
     ++authGen;                                       // an in-flight refresh is now stale
     ++bearerGen;
     state.refreshToken.clear();
