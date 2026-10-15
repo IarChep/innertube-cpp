@@ -140,6 +140,11 @@ std::optional<Link> Link::parse(std::string_view text)
     const size_t hostEnd = s.find_first_of("/?#");
     std::string_view host = s.substr(0, hostEnd);
     std::string_view rest = hostEnd == npos ? std::string_view() : s.substr(hostEnd);
+    if (const size_t colon = host.find(':'); colon != npos) {     // an explicit :port
+        const std::string_view port = host.substr(colon + 1);
+        if (port.empty() || port.find_first_not_of("0123456789") != npos) return std::nullopt;
+        host = host.substr(0, colon);
+    }
     for (std::string_view sub : {"www.", "m.", "music."})
         if (istarts(host, sub)) { host.remove_prefix(sub.size()); break; }
     rest = rest.substr(0, rest.find('#'));

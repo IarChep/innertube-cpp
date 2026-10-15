@@ -27,6 +27,8 @@ TEST_CASE("videoLinks") {
     CHECK(is("https://www.youtube.com/shorts/aqz-KE-bpKQ", LinkKind::Short, "aqz-KE-bpKQ"));
     CHECK(is("https://www.youtube.com/live/jfKfPfyJRdk?si=x", LinkKind::Live, "jfKfPfyJRdk"));
     CHECK(is("https://youtu.be/dQw4w9WgXcQ?t=1h2m3s", LinkKind::Video, "dQw4w9WgXcQ", 3723));
+    CHECK(is("https://www.youtube.com:443/watch?v=dQw4w9WgXcQ", LinkKind::Video, "dQw4w9WgXcQ"));
+    CHECK(is("http://youtu.be:80/dQw4w9WgXcQ", LinkKind::Video, "dQw4w9WgXcQ"));
 }
 TEST_CASE("playlistAndChannelLinks") {
     CHECK(is("https://www.youtube.com/playlist?list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI", LinkKind::Playlist,
@@ -54,6 +56,7 @@ TEST_CASE("notLinks") {
     CHECK_FALSE(Link::parse("https://www.youtube.com/watch?v=short").has_value());
     CHECK_FALSE(Link::parse("https://www.youtube.com/feed/history").has_value());
     CHECK_FALSE(Link::parse("@").has_value());
+    CHECK_FALSE(Link::parse("https://www.youtube.com:x/watch?v=dQw4w9WgXcQ").has_value());   // not a port
     CHECK_FALSE(Link::parse("rick astley").has_value());
 }
 TEST_CASE("linkUrl") {
