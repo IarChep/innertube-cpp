@@ -101,16 +101,18 @@ inline Video fromLockupVideo(const rj::Lockup &lm)
                     v.channelId = str(cc.onTap->innertubeCommand->browseEndpoint->browseId);
             }
         }
-        // metadataRows: row 0 = channel name; a later row = "N views" + "date ago".
+        // metadataRows: row 0 = channel name; a later row = "N views" + "date ago". A
+        // channel's own tab sends only the views/date row: one row means no channel name.
         if (md.metadata && md.metadata->contentMetadataViewModel
             && md.metadata->contentMetadataViewModel->metadataRows) {
+            const std::vector<rj::MetaRow> &rows = *md.metadata->contentMetadataViewModel->metadataRows;
             int ri = 0;
-            for (const rj::MetaRow &row : *md.metadata->contentMetadataViewModel->metadataRows) {
+            for (const rj::MetaRow &row : rows) {
                 if (row.metadataParts) {
                     for (const rj::MetaPart &p : *row.metadataParts) {
                         const std::string txt = str(contentOf(p.text));
                         if (txt.empty()) continue;
-                        if (v.channelName.empty() && ri == 0)                                        v.channelName = txt;
+                        if (v.channelName.empty() && ri == 0 && rows.size() > 1)                     v.channelName = txt;
                         else if (v.viewText.empty() && gj::containsCI(txt, "view")) v.viewText = txt;
                         else if (v.date.empty() && txt.contains("ago"))                           v.date = txt;
                     }

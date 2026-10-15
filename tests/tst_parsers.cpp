@@ -209,6 +209,18 @@ TEST_CASE("lockupRelatedParses") {
     CHECK(v[0].viewText.find("views") != std::string::npos);
     CHECK(v[0].date.find("ago") != std::string::npos);
 }
+// A channel's own Videos tab has a single metadata row ("N views", "date") and no channel
+// name; row 0 used to be taken as the channel name, so channelName read "97K views".
+TEST_CASE("a channel tab lockup has no channel row") {
+    const std::string resp = loadFixtureRaw("channel_videos_lockup.json");
+    std::string token;
+    std::vector<Video> v = parseVideoList(resp, &token);
+    REQUIRE(v.size() == 1);
+    CHECK(v[0].id == "5b3n-u_0QAI");
+    CHECK(v[0].channelName.empty());
+    CHECK(v[0].viewText == "97K views");
+    CHECK(v[0].date == "1 day ago");
+}
 TEST_CASE("comments") {
     const std::string p = loadFixtureRaw("comments_page.json");
     std::string token;
