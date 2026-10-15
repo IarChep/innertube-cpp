@@ -13,7 +13,11 @@ embedded C++ project.
 ## Features
 
 - **Browse**: home and topic feeds, channels, playlists, history, subscriptions, Watch Later, Liked.
-- **Search**: videos (relevance, date, views or rating order), channels, playlists, and query suggestions.
+- **Links**: every method takes what the user pasted — a bare id, a watch / `youtu.be` /
+  shorts / live / embed URL, `@handle`, `/channel/`, `/c/`, `/user/` or `?list=` URL
+  (`yt::Link` parses them without the network).
+- **Search**: videos (relevance, upload date, views or rating order), channels, playlists, and
+  query suggestions. Every list is a `yt::Page<T>`; `yt.more(page.next)` fetches the next one.
 - **Watch**: video details, related videos, comments with paging, posting comments.
 - **Streams**: every source YouTube serves without player JavaScript — progressive, adaptive,
   HLS and SABR — each tagged with the client (`VISIONOS` first, then `ANDROID_VR`, signed-in
@@ -79,41 +83,47 @@ A `git submodule` + `add_subdirectory(innertube-cpp)` setup works the same way. 
 code only needs C++17, because Glaze and libcurl stay private to the library.
 
 ```cpp
-#include <yt/client.h>
+#include <yt/yt.h>
 #include <cstdio>
 
-int main()
+int main(int argc, char **argv)
 {
-    yt::ClientOptions o;
-    o.ownThread = false;               // no extra thread: callbacks run inside runOnce()
-    yt::Client client(o);
+    if (argc < 2) return 2;
+    yt::Client yt;                                       // its own engine thread
+    yt::Result<yt::Player> r = yt.videos().player(argv[1]).get();   // any link or id
+    if (!r.ok()) { std::printf("error: %s\n", r.error->message.c_str()); return 1; }
+    std::printf("%s: %zu sources\n", r.value.details.title.c_str(), r.value.sources.size());
 
-    bool done = false;
-    client.search({"rick astley", "relevance"}, [&](const yt::Result<yt::VideoPage> &r) {
-        if (r.ok())
-            for (const yt::Video &v : r.value.items)
-                std::printf("%s  %s\n", v.id.c_str(), v.title.c_str());
-        else
-            std::fprintf(stderr, "error: %s\n", r.error->message.c_str());
-        done = true;
-    });
-    while (!done) client.runOnce(100);
+    auto page = yt.search().videos("rick astley").get();  // every list is a yt::Page
+    if (page.ok() && page.value.next) page = yt.more(page.value.next).get();   // the second page
 }
+```
+
+In a GUI, use the callback form instead: it returns a `yt::Job` you can cancel, and the
+callback runs where `ClientOptions::deliver` sends it:
+
+```cpp
+job = yt.videos().get(link, [this](const yt::Result<yt::WatchResult> &r) { show(r); });
 ```
 
 More complete programs are in [`examples/`](examples):
 
 | Example | Shows |
 |---|---|
-| [`yt-cli`](examples/yt-cli/main.cpp) | own engine thread, a delivery queue, sign-in, persisted state |
-| [`yt-watch`](examples/watch/main.cpp) | several requests in flight, comment paging |
-| [`yt-channel`](examples/channel/main.cpp) | chained requests |
+| [`yt-cli`](examples/yt-cli/main.cpp) | the blocking form (`std::future`), sign-in, persisted state |
+| [`yt-watch`](examples/watch/main.cpp) | callbacks with `runOnce()`, three requests in flight, comment paging |
+| [`yt-channel`](examples/channel/main.cpp) | one link, two requests |
 | [`yt-suggest`](examples/suggest/main.cpp) | canceling a request when a newer one is started |
 
 ## Threading and cancellation
 
-- Every `Client` method may be called from any thread. It only posts work: network I/O,
-  parsing and request logic run on the engine thread.
+- Every `Client`, group (`videos()`, `search()`, …) and `Auth` method may be called from any
+  thread. It only posts work: network I/O, parsing and request logic run on the engine thread.
+- Every operation also has a form without the callback that returns a `std::future`. It is
+  fulfilled straight from the engine thread (not through `deliver`), so blocking any thread
+  on `get()` is safe — except the engine thread itself, inside a callback; with
+  `ownThread = false` someone must keep calling `runOnce()`. A Client destroyed first
+  releases pending futures with `ErrorCode::Canceled`.
 - By default (`ownThread = true`) the Client owns that thread. With `ownThread = false`
   you drive it yourself by calling `runOnce()`.
 - Callbacks run where `ClientOptions::deliver` sends them. A GUI app passes a function

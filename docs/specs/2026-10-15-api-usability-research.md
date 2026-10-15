@@ -1,6 +1,6 @@
 # API usability research: what makes a client library easy, and what it means for libinnertube
 
-**Status:** research (2026-10-15). Input for the public-API redesign; no code changed.
+**Status:** research (2026-10-15). R1 done (scenarios); R2–R5 implemented (plan 2026-10-15-api-groups).
 
 **Question.** libinnertube must become the simplest, clearest library a consumer can pick up:
 a small, obvious API that is still complete. What do the libraries people *like* to use have in

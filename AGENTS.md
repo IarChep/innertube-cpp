@@ -46,10 +46,12 @@ restore it), and the docs/comments that describe the touched contract are update
 ```
 include/yt/        public API — C++17, std types only, no Glaze, no curl, no Qt
 src/               the implementation — C++23, private
-  client.cpp       yt::Client facade + Engine (dispatch, delivery, Job)
+  client.cpp       yt::Client + Engine (boot, delivery, Job, future forms of more)
+  groups.cpp       the resource groups of yt::Client (thin wrappers over core/chains)
+  link.cpp         yt::Link — link and id recognition
   player.cpp       pure helpers of the public player types
   auth.cpp         OAuth device flow + bearer lifecycle (Engine methods)
-  engine.h         Engine / JobHandle / Gate — the threading contract lives here
+  engine.h         Engine / JobHandle / Gate + dispatch (start) — the threading contract lives here
   core/            request chains over the IHttp seam, JobToken, logging, pct-encoding
   net/             Loop (tasks + timers), HttpClient (transport policy), URL helpers
   innertube/       client identities, context/header builder, POST body builders, player-JS scans (playerjs)
@@ -209,11 +211,14 @@ Comment density is moderate and purposeful. Match it.
 **New Client operation**
 1. Chain in `src/core/chains.cpp` (+ declaration with its contract in `chains.h`):
    build the body in `innertube/bodies.*`, post via `IHttp`, parse via `parsers/`,
-   map `!r.ok` with `errorOf(r)`.
-2. Public method in `include/yt/client.h` and a thin `m_engine->start<…>(…)` wrapper
-   in `src/client.cpp`, the same shape as its neighbours.
+   map `!r.ok` with `errorOf(r)`. A list delivers `Page<T>` through `pageOf` (its cursor
+   names the endpoint and client); a link argument is turned into an id with
+   `videoIdOf` / `playlistIdOf` / `fetchChannelId`, a wrong kind fails with `badLink`.
+2. Both forms on its group in `include/yt/client.h` and `src/groups.cpp`: the callback
+   form over `run<T>(m_e, chain, done)`, the future form as the `detail::futureOf`
+   one-liner — the same shape as their neighbours.
 3. Tests: chain behaviour in `tst_chains.cpp` (FakeHttp: sent body, client routing,
-   parsed result, error mapping); add the call to "every endpoint reaches its chain"
+   parsed result, error mapping); add the call to "every group method reaches its chain"
    in `tst_client.cpp`.
 
 **New parser / JSON shape**: namespace-scope aggregates of `std::optional` fields

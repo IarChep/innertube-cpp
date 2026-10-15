@@ -1,6 +1,6 @@
 // Compiled at -std=c++17: the public headers must not need anything newer.
 #include <doctest/doctest.h>
-#include <yt/types.h>
+#include <yt/yt.h>
 #include <yt/result.h>
 #include <yt/player.h>
 static_assert(__cplusplus < 201703L + 3, "this suite must build as C++17");
@@ -62,4 +62,12 @@ TEST_CASE("Page and Cursor defaults") {
     yt::Rating r = yt::Rating::None;
     CHECK(r != yt::Rating::Like);
     CHECK(yt::ErrorCode::InvalidArgument != yt::ErrorCode::Canceled);
+}
+TEST_CASE("the umbrella header is enough") {
+    std::optional<yt::Link> l = yt::Link::parse("dQw4w9WgXcQ");
+    CHECK(l.has_value());
+    yt::Page<yt::Video> p;
+    CHECK_FALSE(p.next);
+    yt::ClientOptions o;
+    CHECK(o.ownThread);
 }

@@ -1,11 +1,11 @@
 # API scenarios: the code a consumer writes (R1 of the API redesign)
 
-**Status:** scenarios and shape agreed with the owner (2026-10-15); see "Decisions". Next: the
-implementation plan. Step R1 of
-[`2026-10-15-api-usability-research.md`](2026-10-15-api-usability-research.md): the public API
-is designed from the code its users write, not the other way round (Cwalina's scenario-driven
-design). Nothing here is implemented yet; once these samples are agreed, the headers are written
-to make them compile, and the samples become `examples/` and the how-to guides.
+**Status:** agreed (2026-10-15); R2–R5 implemented by
+[../plans/2026-10-15-api-groups.md](../plans/2026-10-15-api-groups.md) — see its deviations table.
+Step R1 of [`2026-10-15-api-usability-research.md`](2026-10-15-api-usability-research.md): the
+public API is designed from the code its users write, not the other way round (Cwalina's
+scenario-driven design). R6 (selection helpers) and R7 (`VideoItem`/`Video`, `myRating`, channel
+tabs) are not implemented yet.
 
 **How to read it.** Each scenario is a user-level task ("play a pasted link", not "call
 /player"). It shows the proposed code, and — where the difference matters — today's code for the
