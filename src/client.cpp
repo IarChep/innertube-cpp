@@ -302,17 +302,17 @@ Job Client::action(Action action, std::string targetId, Callback<Done> done)
     }, std::move(done));
 }
 
-Job Client::postComment(std::string createParams, std::string text, Callback<Done> done)
+Job Client::postComment(std::string videoId, std::string text, Callback<Done> done)
 {
-    return m_engine->start<Result<Done>>([createParams, text](core::IHttp &h, const core::JobToken &t, Callback<Done> d) {
-        core::postComment(h, createParams, text, t, std::move(d));
+    return m_engine->start<Result<Done>>([videoId, text](core::IHttp &h, const core::JobToken &t, Callback<Done> d) {
+        core::postComment(h, videoId, text, t, std::move(d));
     }, std::move(done));
 }
 
 Job Client::editPlaylist(std::string playlistId, bool add, std::string id, Callback<Done> done)
 {
     return m_engine->start<Result<Done>>([playlistId, add, id](core::IHttp &h, const core::JobToken &t, Callback<Done> d) {
-        core::editPlaylist(h, playlistId, add, id, t, std::move(d));
+        core::editPlaylist(h, playlistId, add ? core::AddVideo : core::RemoveVideo, id, t, std::move(d));
     }, std::move(done));
 }
 

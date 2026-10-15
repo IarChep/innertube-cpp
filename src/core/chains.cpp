@@ -1,6 +1,7 @@
 // core::chains — the request layer (ported from MeeTube's core::chains, which in turn
 // was a byte-for-byte port of cuteTube2's QObject request classes onto callbacks).
 #include "core/chains.h"
+#include <yt/link.h>
 #include "core/log.h"
 #include "core/pct.h"
 #include "innertube/bodies.h"
@@ -470,6 +471,99 @@ void fetchChannelSubscribed(IHttp &http, std::string channelId, const JobToken &
     });
 }
 
+std::optional<std::string> videoIdOf(std::string_view link)
+{
+    const std::optional<Link> l = Link::parse(link);
+    if (!l || (l->kind != LinkKind::Video && l->kind != LinkKind::Short && l->kind != LinkKind::Live))
+        return std::nullopt;
+    return l->id;
+}
+
+std::optional<std::string> playlistIdOf(std::string_view link)
+{
+    const std::optional<Link> l = Link::parse(link);
+    if (!l || l->kind != LinkKind::Playlist) return std::nullopt;
+    return l->id;
+}
+
+Error badLink(std::string_view link, const char *expected)
+{
+    return Error{ErrorCode::InvalidArgument, std::string("not a ") + expected + " link: " + std::string(link), 0};
+}
+
+void fetchChannelId(IHttp &http, std::string link, const JobToken &job, Callback<std::string> done)
+{
+    const std::optional<Link> l = Link::parse(link);
+    Result<std::string> out;
+    if (!l || l->kind == LinkKind::Video || l->kind == LinkKind::Short || l->kind == LinkKind::Live
+        || l->kind == LinkKind::Playlist) {
+        out.error = badLink(link, "channel");
+        done(out);
+        return;
+    }
+    if (l->kind == LinkKind::Channel) { out.value = l->id; done(out); return; }
+    http.post("navigation/resolve_url", ClientId::WEB, bodies::resolveUrl(l->url()), job, [done](const Reply &r) {
+        Result<std::string> id;
+        if (!r.ok) { id.error = errorOf(r); done(id); return; }
+        id.value = parseResolvedBrowseId(*r.body);
+        if (id.value.rfind("UC", 0) != 0) { id.value.clear(); id.error = unavailable("could not resolve channel"); }
+        done(id);
+    });
+}
+
+void fetchChannel(IHttp &http, std::string link, const JobToken &job, Callback<Channel> done)
+{
+    IHttp *h = &http;
+    fetchChannelId(http, std::move(link), job, [h, job, done](const Result<std::string> &id) {
+        if (!id.ok()) { Result<Channel> out; out.error = id.error; done(out); return; }
+        if (!live(job)) return;
+        const std::string cid = id.value;
+        fetchChannelById(*h, cid, job, [h, job, done, cid](const Result<Channel> &ch) {
+            if (!ch.ok() || h->session().bearer.empty()) { done(ch); return; }
+            if (!live(job)) return;
+            fetchChannelSubscribed(*h, cid, job, [done, ch](const Result<bool> &s) {
+                Result<Channel> out = ch;
+                if (s.ok()) out.value.subscribed = s.value;
+                done(out);
+            });
+        });
+    });
+}
+
+void fetchChannelVideos(IHttp &http, std::string link, const JobToken &job, Callback<Page<Video>> done)
+{
+    IHttp *h = &http;
+    fetchChannelId(http, std::move(link), job, [h, job, done](const Result<std::string> &id) {
+        if (!id.ok()) { Result<Page<Video>> out; out.error = id.error; done(out); return; }
+        if (!live(job)) return;
+        VideoListSpec spec;
+        spec.browseId = id.value;
+        spec.params = Catalog::kChannelVideosTab;
+        fetchVideoList(*h, spec, job, done);
+    });
+}
+
+void fetchChannelPlaylists(IHttp &http, std::string link, const JobToken &job, Callback<Page<Playlist>> done)
+{
+    IHttp *h = &http;
+    fetchChannelId(http, std::move(link), job, [h, job, done](const Result<std::string> &id) {
+        if (!id.ok()) { Result<Page<Playlist>> out; out.error = id.error; done(out); return; }
+        if (!live(job)) return;
+        fetchPlaylists(*h, id.value, Catalog::kChannelPlaylistsTab, job, done);
+    });
+}
+
+void channelAction(IHttp &http, std::string link, ActionKind kind, const JobToken &job, Callback<Done> done)
+{
+    IHttp *h = &http;
+    fetchChannelId(http, std::move(link), job, [h, kind, job, done](const Result<std::string> &id) {
+        if (!id.ok()) { Result<Done> out; out.error = id.error; done(out); return; }
+        if (!live(job)) return;
+        submitAction(*h, kind, id.value, job, done);
+    });
+}
+
+
 void fetchVideoList(IHttp &http, const VideoListSpec &spec, const JobToken &job, Callback<Page<Video>> done)
 {
     if (spec.kind == VideoListSpec::Search) {
@@ -551,14 +645,29 @@ void submitAction(IHttp &http, ActionKind kind, std::string targetId, const JobT
     http.post(spec.endpoint, ClientId::TVHTML5, std::move(body), job, doneOf(done));
 }
 
-void postComment(IHttp &http, std::string createParams, std::string text, const JobToken &job, Callback<Done> done)
+void postComment(IHttp &http, std::string videoId, std::string text, const JobToken &job, Callback<Done> done)
 {
-    http.post("comment/create_comment", ClientId::TVHTML5, bodies::createComment(createParams, text), job, doneOf(done));
+    IHttp *h = &http;
+    fetchCommentsFirst(http, std::move(videoId), job,
+                       [h, text, job, done](const Result<Page<Comment>> &page, const std::string &createParams) {
+        Result<Done> out;
+        if (!page.ok()) { out.error = page.error; done(out); return; }
+        if (page.value.disabled || createParams.empty()) {
+            out.error = unavailable("comments are turned off for this video");
+            done(out);
+            return;
+        }
+        if (!live(job)) return;
+        h->post("comment/create_comment", ClientId::TVHTML5, bodies::createComment(createParams, text), job, doneOf(done));
+    });
 }
 
-void editPlaylist(IHttp &http, std::string playlistId, bool add, std::string id, const JobToken &job, Callback<Done> done)
+void editPlaylist(IHttp &http, std::string playlistId, PlaylistEdit edit, std::string videoId, const JobToken &job,
+                  Callback<Done> done)
 {
-    http.post("browse/edit_playlist", ClientId::TVHTML5, bodies::editPlaylist(playlistId, add, id), job, doneOf(done));
+    std::string body = edit == AddVideo ? bodies::playlistAddVideo(playlistId, videoId)
+                                        : bodies::playlistRemoveVideo(playlistId, videoId);
+    http.post("browse/edit_playlist", ClientId::TVHTML5, std::move(body), job, doneOf(done));
 }
 
 void oauthDeviceCode(IHttp &http, const JobToken &job, Callback<DeviceCodeGrant> done)

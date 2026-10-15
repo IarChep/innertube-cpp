@@ -61,7 +61,7 @@ struct CreateComment {
 struct EditAction {
     std::string action;
     std::optional<std::string> addedVideoId;   // omitted when nullopt (add only)
-    std::optional<std::string> setVideoId;     // omitted when nullopt (remove only)
+    std::optional<std::string> removedVideoId; // omitted when nullopt (remove only)
 };
 struct EditPlaylist {
     std::string playlistId;
@@ -171,16 +171,22 @@ std::string createComment(std::string_view createCommentParams, std::string_view
     return dump(b);
 }
 
-std::string editPlaylist(std::string_view playlistId, bool add, std::string_view id)
+std::string playlistAddVideo(std::string_view playlistId, std::string_view videoId)
 {
     bj::EditAction a;
-    if (add) {
-        a.action = "ACTION_ADD_VIDEO";
-        a.addedVideoId = std::string(id);
-    } else {
-        a.action = "ACTION_REMOVE_VIDEO";
-        a.setVideoId = std::string(id);
-    }
+    a.action = "ACTION_ADD_VIDEO";
+    a.addedVideoId = std::string(videoId);
+    bj::EditPlaylist b;
+    b.playlistId = std::string(playlistId);
+    b.actions.push_back(a);
+    return dump(b);
+}
+
+std::string playlistRemoveVideo(std::string_view playlistId, std::string_view videoId)
+{
+    bj::EditAction a;
+    a.action = "ACTION_REMOVE_VIDEO_BY_VIDEO_ID";
+    a.removedVideoId = std::string(videoId);
     bj::EditPlaylist b;
     b.playlistId = std::string(playlistId);
     b.actions.push_back(a);

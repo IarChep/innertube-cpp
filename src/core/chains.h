@@ -15,7 +15,9 @@
 #include "core/ihttp.h"
 #include "core/job.h"
 #include <functional>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 namespace yt::core {
 
@@ -72,9 +74,30 @@ void fetchChannelByUrl(IHttp &, std::string url, const JobToken &, Callback<Chan
 void fetchChannelSubscribed(IHttp &, std::string channelId, const JobToken &, Callback<bool> done);
 void fetchAccount(IHttp &, const JobToken &, Callback<Account> done);
 void submitAction(IHttp &, ActionKind, std::string targetId, const JobToken &, Callback<Done> done);
-void postComment(IHttp &, std::string createParams, std::string text, const JobToken &, Callback<Done> done);
-// add=true: id = videoId; add=false: id = the entry's setVideoId handle. WL|LL|PL….
-void editPlaylist(IHttp &, std::string playlistId, bool add, std::string id, const JobToken &, Callback<Done> done);
+// The id inside whatever the user pasted (yt::Link rules); nullopt when the text is not
+// a link of that kind. Videos: watch, youtu.be, embed, shorts and live links and bare ids.
+std::optional<std::string> videoIdOf(std::string_view link);
+std::optional<std::string> playlistIdOf(std::string_view link);
+// The InvalidArgument error for a link that is not of the expected kind.
+Error badLink(std::string_view link, const char *expected);
+
+// The channel id behind a channel link: a UC… id directly (no request), a /@handle, /c/ or
+// /user/ link through navigation/resolve_url. Anything else is InvalidArgument.
+void fetchChannelId(IHttp &, std::string link, const JobToken &, Callback<std::string> done);
+// The channel header; signed in, also the viewer's subscribe state (an authed TV browse —
+// the WEB header does not carry it for a bearer session).
+void fetchChannel(IHttp &, std::string link, const JobToken &, Callback<Channel> done);
+// A channel's Videos / Playlists tab (Catalog::kChannel*Tab).
+void fetchChannelVideos(IHttp &, std::string link, const JobToken &, Callback<Page<Video>> done);
+void fetchChannelPlaylists(IHttp &, std::string link, const JobToken &, Callback<Page<Playlist>> done);
+// Subscribe / Unsubscribe by channel link.
+void channelAction(IHttp &, std::string link, ActionKind, const JobToken &, Callback<Done> done);
+// A top-level comment: the video's comments page supplies the createCommentParams. Comments
+// turned off fail with Unavailable.
+void postComment(IHttp &, std::string videoId, std::string text, const JobToken &, Callback<Done> done);
+enum PlaylistEdit { AddVideo, RemoveVideo };
+// WL|LL|PL…, by video id.
+void editPlaylist(IHttp &, std::string playlistId, PlaylistEdit, std::string videoId, const JobToken &, Callback<Done> done);
 // Like + dislike counts from returnyoutubedislikeapi.com (YouTube hides dislikes).
 void fetchDislikes(IHttp &, std::string videoId, const JobToken &, Callback<Votes> done);
 void fetchSearchSuggestions(IHttp &, std::string query, const JobToken &, Callback<std::vector<std::string>> done);

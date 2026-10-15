@@ -29,10 +29,6 @@ TEST_CASE("account / actions") {
     CHECK(bodies::subscribeChannels("UC1") == "{\"channelIds\":[\"UC1\"]}");
     CHECK(bodies::likeTarget("v") == "{\"target\":{\"videoId\":\"v\"}}");
     CHECK(bodies::createComment("P", "hi") == "{\"createCommentParams\":\"P\",\"commentText\":\"hi\"}");
-    CHECK(bodies::editPlaylist("WL", true, "v") ==
-          "{\"playlistId\":\"WL\",\"actions\":[{\"action\":\"ACTION_ADD_VIDEO\",\"addedVideoId\":\"v\"}]}");
-    CHECK(bodies::editPlaylist("PL1", false, "S") ==
-          "{\"playlistId\":\"PL1\",\"actions\":[{\"action\":\"ACTION_REMOVE_VIDEO\",\"setVideoId\":\"S\"}]}");
 }
 
 TEST_CASE("mdx handoff (QR)") {
@@ -45,4 +41,10 @@ TEST_CASE("continuation body") {
     CHECK(bodies::continuation("TOK") == "{\"continuation\":\"TOK\"}");
     CHECK(bodies::browse("UCx", "EgZ2aWRlb3PyBgQKAjoA") == "{\"browseId\":\"UCx\",\"params\":\"EgZ2aWRlb3PyBgQKAjoA\"}");
     CHECK(bodies::browse("FEwhat_to_watch", "") == "{\"browseId\":\"FEwhat_to_watch\"}");
+}
+TEST_CASE("playlist edits") {
+    CHECK(bodies::playlistAddVideo("WL", "vid42") ==
+          "{\"playlistId\":\"WL\",\"actions\":[{\"action\":\"ACTION_ADD_VIDEO\",\"addedVideoId\":\"vid42\"}]}");
+    CHECK(bodies::playlistRemoveVideo("PLabc", "vid42") ==
+          "{\"playlistId\":\"PLabc\",\"actions\":[{\"action\":\"ACTION_REMOVE_VIDEO_BY_VIDEO_ID\",\"removedVideoId\":\"vid42\"}]}");
 }

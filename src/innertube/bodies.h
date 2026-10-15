@@ -30,9 +30,10 @@ std::string subscribeChannels(std::string_view channelId);
 std::string likeTarget(std::string_view videoId);
 // {createCommentParams, commentText} — a top-level comment post (create_comment).
 std::string createComment(std::string_view createCommentParams, std::string_view text);
-// add=true → ACTION_ADD_VIDEO (id = videoId); add=false → ACTION_REMOVE_VIDEO
-// (id = the per-entry setVideoId position handle). playlistId is WL|LL|PL….
-std::string editPlaylist(std::string_view playlistId, bool add, std::string_view id);
+// browse/edit_playlist: ACTION_ADD_VIDEO {addedVideoId} / ACTION_REMOVE_VIDEO_BY_VIDEO_ID
+// {removedVideoId}. Removal by video id needs no per-entry setVideoId handle.
+std::string playlistAddVideo(std::string_view playlistId, std::string_view videoId);
+std::string playlistRemoveVideo(std::string_view playlistId, std::string_view videoId);
 // {handoffQrParams:{rapidQrParams:{qrPresetStyle, userCode, rapidQrFeature}}} — the TV
 // sign-in QR for a device code (mdx/handoff).
 std::string mdxHandoff(std::string_view userCode);

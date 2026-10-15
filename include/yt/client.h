@@ -87,7 +87,7 @@ public:
     Job searchPlaylists(std::string query, Callback<Page<Playlist>> done);
     Job account(Callback<Account> done);
     Job action(Action action, std::string targetId, Callback<Done> done);
-    Job postComment(std::string createParams, std::string text, Callback<Done> done);
+    Job postComment(std::string videoId, std::string text, Callback<Done> done);
     Job editPlaylist(std::string playlistId, bool add, std::string id, Callback<Done> done);
     Job votes(std::string videoId, Callback<Votes> done);                    // returnyoutubedislike
     Job suggestions(std::string query, Callback<std::vector<std::string>> done);

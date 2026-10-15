@@ -484,26 +484,6 @@ TEST_CASE("videoLoadWatch") {
 }
 
 
-// ---- postComment ----
-TEST_CASE("postCommentSucceeds") {
-    FakeHttp t; t.queue("comment/create_comment", "{}");
-    Cap<Done> c;
-    postComment(t, "PARAMS", "hi", newJob(), c.fn());
-    t.flush();
-    CHECK(c.calls == 1);
-    CHECK(c.r.ok());
-    CHECK(has(t.sent[0], "\"createCommentParams\":\"PARAMS\""));
-    CHECK(has(t.sent[0], "\"commentText\":\"hi\""));
-    CHECK(t.lastClientFor("comment/create_comment") == (int)ClientId::TVHTML5);
-}
-TEST_CASE("postCommentTransportFails") {
-    FakeHttp t;
-    Cap<Done> c;
-    postComment(t, "PARAMS", "hi", newJob(), c.fn());
-    t.flush();
-    CHECK(c.calls == 1);
-    CHECK_FALSE(c.r.ok());
-}
 
 // ---- playlists / channels ----
 TEST_CASE("userResolveThenBrowse") {
@@ -640,30 +620,6 @@ TEST_CASE("actions") {
         CHECK(has(t.sent[0], row.needle));
         CHECK(t.lastClientFor(row.endpoint) == (int)ClientId::TVHTML5);
     }
-}
-TEST_CASE("editPlaylistAdd") {
-    FakeHttp t; t.queue("browse/edit_playlist", "{}");
-    Cap<Done> c;
-    editPlaylist(t, "WL", true, "vid42", newJob(), c.fn());
-    t.flush();
-    CHECK(c.calls == 1);
-    CHECK(c.r.ok());
-    CHECK(has(t.sent[0], "\"playlistId\":\"WL\""));
-    CHECK(has(t.sent[0], "ACTION_ADD_VIDEO"));
-    CHECK(has(t.sent[0], "\"addedVideoId\":\"vid42\""));
-    CHECK_FALSE(has(t.sent[0], "setVideoId"));
-    CHECK(t.lastClientFor("browse/edit_playlist") == (int)ClientId::TVHTML5);
-}
-TEST_CASE("editPlaylistRemove") {
-    FakeHttp t; t.queue("browse/edit_playlist", "{}");
-    Cap<Done> c;
-    editPlaylist(t, "PLabc", false, "setVid", newJob(), c.fn());
-    t.flush();
-    CHECK(c.calls == 1);
-    CHECK(c.r.ok());
-    CHECK(has(t.sent[0], "ACTION_REMOVE_VIDEO"));
-    CHECK(has(t.sent[0], "\"setVideoId\":\"setVid\""));
-    CHECK_FALSE(has(t.sent[0], "addedVideoId"));
 }
 TEST_CASE("actionTransportFails") {
     FakeHttp t;
@@ -899,4 +855,138 @@ TEST_CASE("cursorAccessRoundTrip") {
     CHECK(detail::CursorAccess::client(c) == ClientId::TVHTML5);
     CHECK(detail::CursorAccess::token(c) == "TOK");
     CHECK_FALSE(detail::CursorAccess::make<Video>("browse", ClientId::WEB, ""));   // no token = no next page
+}
+// ---- links into ids ----
+TEST_CASE("videoIdOf and playlistIdOf") {
+    CHECK(videoIdOf("https://youtu.be/dQw4w9WgXcQ?si=x") == std::optional<std::string>("dQw4w9WgXcQ"));
+    CHECK(videoIdOf("https://www.youtube.com/shorts/aqz-KE-bpKQ") == std::optional<std::string>("aqz-KE-bpKQ"));
+    CHECK_FALSE(videoIdOf("@NASA").has_value());
+    CHECK(playlistIdOf("https://www.youtube.com/playlist?list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI")
+          == std::optional<std::string>("PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI"));
+    CHECK(playlistIdOf("WL") == std::optional<std::string>("WL"));
+    CHECK_FALSE(playlistIdOf("dQw4w9WgXcQ").has_value());
+    const Error e = badLink("xyz", "video");
+    CHECK(e.code == ErrorCode::InvalidArgument);
+    CHECK(e.message == "not a video link: xyz");
+}
+TEST_CASE("a channel id needs no request; a handle is resolved") {
+    FakeHttp t;
+    t.queue("navigation/resolve_url", "{\"endpoint\":{\"browseEndpoint\":{\"browseId\":\"UCabcabcabcabcabcabcabca\"}}}");
+    Cap<std::string> a, b;
+    fetchChannelId(t, "UCuAXFkgsw1L7xaCfnd5JJOw", newJob(), a.fn());
+    fetchChannelId(t, "https://www.youtube.com/@NASA/videos", newJob(), b.fn());
+    t.flush();
+    REQUIRE(a.r.ok());
+    CHECK(a.r.value == "UCuAXFkgsw1L7xaCfnd5JJOw");
+    REQUIRE(b.r.ok());
+    CHECK(b.r.value == "UCabcabcabcabcabcabcabca");
+    REQUIRE(t.sent.size() == 1);
+    CHECK(has(t.sent[0], "\"url\":\"https://www.youtube.com/@NASA\""));
+}
+// Review focus: a link of the wrong kind fails without a request.
+TEST_CASE("a video link is not a channel") {
+    FakeHttp t;
+    Cap<std::string> c;
+    fetchChannelId(t, "https://youtu.be/dQw4w9WgXcQ", newJob(), c.fn());
+    t.flush();
+    REQUIRE_FALSE(c.r.ok());
+    CHECK(c.r.error->code == ErrorCode::InvalidArgument);
+    CHECK(t.sent.empty());
+}
+TEST_CASE("a resolve that names no channel is Unavailable") {
+    FakeHttp t;
+    t.queue("navigation/resolve_url", "{\"endpoint\":{\"browseEndpoint\":{\"browseId\":\"FEwhat_to_watch\"}}}");
+    Cap<std::string> c;
+    fetchChannelId(t, "@nobody", newJob(), c.fn());
+    t.flush();
+    REQUIRE_FALSE(c.r.ok());
+    CHECK(c.r.error->code == ErrorCode::Unavailable);
+}
+TEST_CASE("signed in, a channel also carries the viewer's subscribe state") {
+    FakeHttp t; t.session().bearer = "tok";
+    t.queue("browse", "{\"header\":{\"c4TabbedHeaderRenderer\":{\"title\":\"Chan\",\"channelId\":\"UCuAXFkgsw1L7xaCfnd5JJOw\"}}}");
+    t.queue("browse", "{\"subscribeButton\":{\"subscribeButtonRenderer\":{\"subscribed\":true}}}");
+    Cap<Channel> c;
+    fetchChannel(t, "UCuAXFkgsw1L7xaCfnd5JJOw", newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    CHECK(c.r.value.id == "UCuAXFkgsw1L7xaCfnd5JJOw");
+    CHECK(t.sentClients == std::vector<int>{(int) ClientId::WEB, (int) ClientId::TVHTML5});
+    CHECK(c.r.value.subscribed);
+}
+TEST_CASE("anonymous, a channel is one request") {
+    FakeHttp t;
+    t.queue("browse", "{\"header\":{\"c4TabbedHeaderRenderer\":{\"title\":\"Chan\",\"channelId\":\"UCuAXFkgsw1L7xaCfnd5JJOw\"}}}");
+    Cap<Channel> c;
+    fetchChannel(t, "https://www.youtube.com/channel/UCuAXFkgsw1L7xaCfnd5JJOw", newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    CHECK(t.sent.size() == 1);
+}
+TEST_CASE("channel tabs browse the channel with the tab params") {
+    FakeHttp t;
+    t.queue("navigation/resolve_url", "{\"endpoint\":{\"browseEndpoint\":{\"browseId\":\"UCabcabcabcabcabcabcabca\"}}}");
+    t.queue("browse", loadFixtureRaw("browse_feed.json"));
+    t.queue("browse", "{\"contents\":[{\"playlistRenderer\":{\"playlistId\":\"PL9\",\"title\":{\"simpleText\":\"X\"}}}]}");
+    Cap<Page<Video>> v;
+    Cap<Page<Playlist>> p;
+    fetchChannelVideos(t, "@NASA", newJob(), v.fn());
+    t.flush();
+    fetchChannelPlaylists(t, "UCuAXFkgsw1L7xaCfnd5JJOw", newJob(), p.fn());
+    t.flush();
+    REQUIRE(v.r.ok());
+    CHECK(has(t.sent[1], "\"browseId\":\"UCabcabcabcabcabcabcabca\""));
+    CHECK(has(t.sent[1], (std::string("\"params\":\"") + Catalog::kChannelVideosTab + "\"").c_str()));
+    REQUIRE(p.r.ok());
+    CHECK(p.r.value.items.size() == 1);
+    CHECK(has(t.sent[2], (std::string("\"params\":\"") + Catalog::kChannelPlaylistsTab + "\"").c_str()));
+}
+TEST_CASE("subscribe by link resolves the channel first") {
+    FakeHttp t;
+    t.queue("navigation/resolve_url", "{\"endpoint\":{\"browseEndpoint\":{\"browseId\":\"UCabcabcabcabcabcabcabca\"}}}");
+    t.queue("subscription/subscribe", "{}");
+    Cap<Done> c;
+    channelAction(t, "@NASA", Subscribe, newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    CHECK(has(t.sent[1], "\"channelIds\":[\"UCabcabcabcabcabcabcabca\"]"));
+    CHECK(t.lastClientFor("subscription/subscribe") == (int) ClientId::TVHTML5);
+}
+TEST_CASE("posting a comment finds its createCommentParams on the comments page") {
+    FakeHttp t;
+    t.queue("next", loadFixtureRaw("next_for_comments.json"));
+    t.queue("next", "{\"x\":{\"createCommentParams\":\"CPARAMS\"}}");
+    t.queue("comment/create_comment", "{}");
+    Cap<Done> c;
+    postComment(t, "aaa11111111", "hi", newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    REQUIRE(t.sent.size() == 3);
+    CHECK(has(t.sent[2], "\"createCommentParams\":\"CPARAMS\""));
+    CHECK(has(t.sent[2], "\"commentText\":\"hi\""));
+    CHECK(t.lastClientFor("comment/create_comment") == (int) ClientId::TVHTML5);
+}
+TEST_CASE("posting where comments are off fails without a create request") {
+    FakeHttp t; t.queue("next", "{}");
+    Cap<Done> c;
+    postComment(t, "aaa11111111", "hi", newJob(), c.fn());
+    t.flush();
+    REQUIRE_FALSE(c.r.ok());
+    CHECK(c.r.error->code == ErrorCode::Unavailable);
+    CHECK(t.sent.size() == 1);
+}
+TEST_CASE("playlist edits add and remove by video id") {
+    FakeHttp t;
+    t.queue("browse/edit_playlist", "{}");
+    t.queue("browse/edit_playlist", "{}");
+    Cap<Done> a, r;
+    editPlaylist(t, "WL", AddVideo, "vid42", newJob(), a.fn());
+    editPlaylist(t, "PLabc", RemoveVideo, "vid42", newJob(), r.fn());
+    t.flush();
+    CHECK(a.r.ok());
+    CHECK(r.r.ok());
+    CHECK(has(t.sent[0], "\"addedVideoId\":\"vid42\""));
+    CHECK(has(t.sent[1], "\"removedVideoId\":\"vid42\""));
+    CHECK_FALSE(has(t.sent[1], "setVideoId"));
+    CHECK(t.lastClientFor("browse/edit_playlist") == (int) ClientId::TVHTML5);
 }

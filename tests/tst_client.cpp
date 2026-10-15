@@ -212,13 +212,13 @@ TEST_CASE("every endpoint reaches its chain") {
     c->searchPlaylists("q", nop);
     c->account(nop);
     c->action(yt::Action::Like, "v", nop);
-    c->postComment("P", "t", nop);
+    c->postComment("dQw4w9WgXcQ", "t", nop);
     c->editPlaylist("WL", true, "v", nop);
     c->votes("v", nop);
     c->suggestions("q", nop);
     c->runOnce(0);
     for (const char *ep : {"search", "next", "player", "browse", "navigation/resolve_url", "account/accounts_list",
-                           "like/like", "comment/create_comment", "browse/edit_playlist"})
+                           "like/like", "browse/edit_playlist"})
         CHECK_MESSAGE(f->lastClientFor(ep) != -1, ep);
     CHECK_FALSE(f->fetched.empty());
 }

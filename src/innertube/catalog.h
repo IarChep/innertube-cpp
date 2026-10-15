@@ -34,6 +34,10 @@ namespace Catalog {
     static const char *const kTvPageUrl = "https://www.youtube.com/tv";
     // The QR the TV app shows next to the code (mdx/handoff, youtube_uwp TvSignInClient).
     static const char *const kQrPresetStyle = "HANDOFF_QR_LIMITED_PRESET_STYLE_MODERN_BIG_DOTS_INVERT_WITH_YT_LOGO";
+    // Channel tab selectors (browse params, opaque protobuf): a plain channel browse lands
+    // on the shelf-shaped Home tab. Troubadour's YTApi.m +channel:tab: (from youtube_uwp).
+    static const char *const kChannelVideosTab    = "EgZ2aWRlb3PyBgQKAjoA";
+    static const char *const kChannelPlaylistsTab = "EglwbGF5bGlzdHPyBgQKAkIA";
 }
 }
 #endif
