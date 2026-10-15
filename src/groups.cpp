@@ -249,6 +249,15 @@ Job Account::subscriptions(Callback<Page<Channel>> done)
     }, std::move(done));
 }
 
+// ---- Raw ----
+
+Job Raw::post(std::string endpoint, ClientId client, std::string json, Callback<std::string> done)
+{
+    return run<std::string>(m_e, [endpoint, client, json](core::IHttp &h, const core::JobToken &t, Callback<std::string> d) {
+        core::rawPost(h, endpoint, client, json, t, std::move(d));
+    }, std::move(done));
+}
+
 // ---- the future forms: each is its callback form inside futureOf ----
 
 std::future<Result<Video>> Videos::get(std::string link)
@@ -365,6 +374,11 @@ std::future<Result<Page<Playlist>>> Account::playlists()
 std::future<Result<Page<Channel>>> Account::subscriptions()
 {
     return detail::futureOf<Page<Channel>>([&](Callback<Page<Channel>> cb) { return subscriptions(std::move(cb)); });
+}
+std::future<Result<std::string>> Raw::post(std::string endpoint, ClientId client, std::string json)
+{
+    return detail::futureOf<std::string>(
+        [&](Callback<std::string> cb) { return post(std::move(endpoint), client, std::move(json), std::move(cb)); });
 }
 
 }

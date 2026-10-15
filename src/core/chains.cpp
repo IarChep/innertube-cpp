@@ -9,6 +9,7 @@
 #include "innertube/clientconfig.h"
 #include "innertube/playerjs.h"
 #include "json/json3.h"
+#include "json/jsonscan.h"
 #include "json/shapes/account.h"
 #include "json/shapes/oauth.h"
 #include "json/shapes/ryd.h"
@@ -29,6 +30,19 @@ Error errorOf(const Reply &r) { return Error{r.code, r.error, r.httpStatus}; }
 Error unavailable(const char *what) { return Error{ErrorCode::Unavailable, what, 0}; }
 std::string str(const std::optional<std::string> &s) { return s ? *s : std::string(); }
 bool isPng(const std::string &b) { return b.compare(0, 8, "\x89PNG\r\n\x1a\n") == 0; }
+// "browse", "account/accounts_list": path segments of [A-Za-z0-9_] — nothing that could
+// leave the youtubei path or add a query when appended to the base URL.
+bool isEndpointPath(std::string_view e)
+{
+    if (e.empty() || e.front() == '/' || e.back() == '/') return false;
+    char prev = '/';
+    for (char c : e) {
+        const bool word = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+        if (!word && !(c == '/' && prev != '/')) return false;
+        prev = c;
+    }
+    return true;
+}
 
 // Bearer-aware browse routing. The OAuth bearer is minted with the TV device-code
 // credentials and rides ONLY the TVHTML5 client (WEB browse rejects it with 400);
@@ -718,6 +732,34 @@ void editPlaylist(IHttp &http, std::string playlistId, PlaylistEdit edit, std::s
     std::string body = edit == AddVideo ? bodies::playlistAddVideo(playlistId, videoId)
                                         : bodies::playlistRemoveVideo(playlistId, videoId);
     http.post("browse/edit_playlist", ClientId::TVHTML5, std::move(body), job, doneOf(done));
+}
+
+void rawPost(IHttp &http, std::string endpoint, ClientId client, std::string json, const JobToken &job,
+             Callback<std::string> done)
+{
+    Result<std::string> out;
+    if (!isEndpointPath(endpoint)) {
+        out.error = Error{ErrorCode::InvalidArgument, "not an InnerTube endpoint: " + endpoint, 0};
+        done(out);
+        return;
+    }
+    // The context splice appends the body from its second byte: one object, no outer
+    // whitespace, an empty one exactly "{}"; a "context" of its own would be a second one.
+    const size_t first = json.find_first_not_of(" \t\r\n"), last = json.find_last_not_of(" \t\r\n");
+    const bool object = first != std::string::npos && json[first] == '{' && json[last] == '}' && last > first;
+    if (object) json = json.substr(first, last - first + 1);
+    if (!object || !gj::scan::topLevelValue(json, "context").empty()) {
+        out.error = Error{ErrorCode::InvalidArgument, "the body must be one JSON object without \"context\"", 0};
+        done(out);
+        return;
+    }
+    if (json.find_first_not_of(" \t\r\n", 1) == json.size() - 1) json = "{}";
+    http.post(endpoint, client, std::move(json), job, [done](const Reply &r) {
+        Result<std::string> body;
+        if (!r.ok) { body.error = errorOf(r); done(body); return; }
+        body.value = *r.body;
+        done(body);
+    });
 }
 
 void oauthDeviceCode(IHttp &http, const JobToken &job, Callback<DeviceCodeGrant> done)

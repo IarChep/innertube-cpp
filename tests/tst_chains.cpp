@@ -1093,3 +1093,57 @@ TEST_CASE("Watch Later signed out is AuthRequired, without a request") {
     CHECK(c.r.error->code == ErrorCode::AuthRequired);
     CHECK(t.sent.empty());
 }
+// ---- rawPost: the escape hatch (Client::raw) ----
+TEST_CASE("a raw post goes out like any request and delivers the body") {
+    FakeHttp t;
+    t.queue("browse", "{\"contents\":{}}");
+    Cap<std::string> c;
+    rawPost(t, "browse", ClientId::TVHTML5, "  {\"browseId\":\"FEwhat_to_watch\"} \n", newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    CHECK(c.r.value == "{\"contents\":{}}");
+    CHECK(t.sent[0] == "{\"browseId\":\"FEwhat_to_watch\"}");   // trimmed for the context splice
+    CHECK(t.lastClientFor("browse") == (int) ClientId::TVHTML5);
+}
+TEST_CASE("a raw post with an empty object sends {}") {
+    FakeHttp t;
+    t.queue("account/accounts_list", "{}");
+    Cap<std::string> c;
+    rawPost(t, "account/accounts_list", ClientId::WEB, "{ \n }", newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    CHECK(t.sent[0] == "{}");
+}
+TEST_CASE("a raw post keeps the error of a failed reply") {
+    FakeHttp t;
+    t.queue("next", "{\"error\":{}}", 400);
+    Cap<std::string> c;
+    rawPost(t, "next", ClientId::WEB, "{}", newJob(), c.fn());
+    t.flush();
+    REQUIRE_FALSE(c.r.ok());
+    CHECK(c.r.error->httpStatus == 400);
+}
+// The endpoint is appended to the youtubei URL verbatim: anything but plain path segments
+// could reach another path or carry a query; the body must stay one object for the splice.
+TEST_CASE("a raw post refuses a malformed endpoint or body, sending nothing") {
+    const char *endpoints[] = {"", "/browse", "browse/", "a//b", "../browse", "browse?key=x", "browse#x",
+                               "x@evil.com", "br owse", "browse%2F"};
+    for (const char *ep : endpoints) {
+        FakeHttp t;
+        Cap<std::string> c;
+        rawPost(t, ep, ClientId::WEB, "{}", newJob(), c.fn());
+        t.flush();
+        CHECK_MESSAGE(c.calls == 1, ep);
+        CHECK_MESSAGE((!c.r.ok() && c.r.error->code == ErrorCode::InvalidArgument), ep);
+        CHECK_MESSAGE(t.sent.empty(), ep);
+    }
+    const char *bodies[] = {"", "[1]", "\"x\"", "{\"a\":1", "{\"context\":{},\"a\":1}"};
+    for (const char *body : bodies) {
+        FakeHttp t;
+        Cap<std::string> c;
+        rawPost(t, "browse", ClientId::WEB, body, newJob(), c.fn());
+        t.flush();
+        CHECK_MESSAGE((!c.r.ok() && c.r.error->code == ErrorCode::InvalidArgument), body);
+        CHECK_MESSAGE(t.sent.empty(), body);
+    }
+}

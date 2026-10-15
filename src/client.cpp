@@ -147,7 +147,7 @@ Client::Client(ClientOptions options) : Client(engineFor(std::move(options))) {}
 Client::Client(std::shared_ptr<detail::Engine> engine)
     : m_engine(std::move(engine)), m_auth(new Auth(m_engine.get())), m_videos(m_engine.get()),
       m_search(m_engine.get()), m_channels(m_engine.get()), m_playlists(m_engine.get()),
-      m_feeds(m_engine.get()), m_comments(m_engine.get()), m_account(m_engine.get())
+      m_feeds(m_engine.get()), m_comments(m_engine.get()), m_account(m_engine.get()), m_raw(m_engine.get())
 {
 }
 

@@ -9,6 +9,7 @@
 //   yt-cli channel <link>          e.g. @NASA
 //   yt-cli playlist <link>         e.g. PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI
 //   yt-cli comments <link>
+//   yt-cli raw <endpoint> [json]   e.g. raw browse '{"browseId":"FEwhat_to_watch"}' (unstable)
 //   yt-cli signin                  device-code login; state saved to ./yt-cli-state.json
 #include <yt/yt.h>
 #include <glaze/glaze.hpp>
@@ -140,7 +141,8 @@ int main(int argc, char **argv)
     const std::string arg = argc > 2 ? argv[2] : "";
     if (cmd.empty() || (cmd != "signin" && arg.empty())) {
         std::fprintf(stderr, "usage: %s feed home|subscriptions|history|<topic id> | search <query> [pages] |\n"
-                             "       streams <link> | captions <link> [lang] | channel <link> | playlist <link> | comments <link> | signin\n",
+                             "       streams <link> | captions <link> [lang] | channel <link> | playlist <link> | comments <link> |\n"
+                             "       raw <endpoint> [json] | signin\n",
                      argv[0]);
         return 2;
     }
@@ -194,6 +196,12 @@ int main(int argc, char **argv)
         for (const yt::CommentThread &t : r.value.items)
             std::printf("[%s] %s%s%s\n", t.comment.author.name.c_str(), t.comment.text.substr(0, t.comment.text.find('\n')).c_str(),
                         t.replyText.empty() ? "" : "  · replies: ", t.replyText.c_str());
+        return 0;
+    }
+    if (cmd == "raw") {                              // unstable escape hatch: prints the JSON
+        const yt::Result<std::string> r = yt.raw().post(arg, yt::ClientId::WEB, argc > 3 ? argv[3] : "{}").get();
+        if (!r.ok()) return fail(*r.error);
+        std::printf("%s\n", r.value.c_str());
         return 0;
     }
     if (cmd == "signin") return signin(yt);

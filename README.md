@@ -158,6 +158,19 @@ More complete programs are in [`examples/`](examples):
 
 The full contract is in the header of [`include/yt/client.h`](include/yt/client.h).
 
+## Raw requests (unstable)
+
+For an InnerTube call the groups do not cover yet, `yt.raw().post(endpoint, client, json)`
+sends it with everything the library adds — the context (client identity, locale,
+visitorData), the bearer when signed in, timeouts, the 401 retry — and returns the response
+JSON as text. Nothing is parsed for you, and YouTube changes these endpoints without notice:
+prefer a group method, and ask for one when you need the same call twice.
+
+```cpp
+yt::Result<std::string> r = yt.raw().post("navigation/resolve_url", yt::ClientId::WEB,
+                                          R"({"url":"https://www.youtube.com/@NASA"})").get();
+```
+
 ## Sign-in and persistence
 
 ```cpp

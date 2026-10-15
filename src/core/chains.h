@@ -104,6 +104,12 @@ void editPlaylist(IHttp &, std::string playlistId, PlaylistEdit, std::string vid
 // Like + dislike counts from returnyoutubedislikeapi.com (YouTube hides dislikes).
 void fetchDislikes(IHttp &, std::string videoId, const JobToken &, Callback<Votes> done);
 void fetchSearchSuggestions(IHttp &, std::string query, const JobToken &, Callback<std::vector<std::string>> done);
+// Client::raw: POST youtubei/v1/<endpoint> as `client` with `json` as the body. The
+// endpoint is appended to the base URL verbatim, so it must be path segments of
+// [A-Za-z0-9_]; the body must be one JSON object without "context" (the transport splices
+// it in). Either wrong is InvalidArgument and nothing is sent. Delivers the response body.
+void rawPost(IHttp &, std::string endpoint, ClientId client, std::string json, const JobToken &,
+             Callback<std::string> done);
 // OAuth device-code flow (form posts, no context). One poll per call; the retry
 // loop lives in Auth.
 void oauthDeviceCode(IHttp &, const JobToken &, Callback<DeviceCodeGrant> done);

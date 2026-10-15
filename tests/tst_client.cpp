@@ -222,6 +222,7 @@ TEST_CASE("every group method reaches its chain") {
     c->account().rate(v, yt::Rating::Like, nop);
     c->account().subscribe(ch, nop);
     c->account().save(v, pl, nop);
+    c->raw().post("player", yt::ClientId::IOS, "{\"videoId\":\"dQw4w9WgXcQ\"}", nop);
     c->runOnce(0);
     for (const char *ep : {"search", "next", "player", "browse", "navigation/resolve_url", "account/accounts_list",
                            "like/like", "subscription/subscribe", "browse/edit_playlist"})
@@ -386,4 +387,14 @@ TEST_CASE("futures for links, pages and more") {
     for (int i = 0; i < 8 && !ready(second); ++i) { c->runOnce(0); f->flush(); }
     REQUIRE(ready(second));
     CHECK(second.get().ok());
+}
+TEST_CASE("raw: the future form delivers the response body") {
+    auto f = std::make_shared<FakeHttp>(); f->queue("browse", "{\"x\":1}");
+    auto c = mk(f);
+    auto body = c->raw().post("browse", yt::ClientId::WEB, "{\"browseId\":\"FEx\"}");
+    for (int i = 0; i < 8 && !ready(body); ++i) { c->runOnce(0); f->flush(); }
+    REQUIRE(ready(body));
+    const yt::Result<std::string> r = body.get();
+    REQUIRE(r.ok());
+    CHECK(r.value == "{\"x\":1}");
 }

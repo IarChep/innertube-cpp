@@ -206,6 +206,28 @@ private:
     detail::Engine *m_e;
 };
 
+// Raw InnerTube requests: the escape hatch for what the groups do not cover yet. UNSTABLE:
+// YouTube changes these endpoints and their JSON without notice, and nothing here parses
+// for you — prefer a group method, and ask for one when you need the same call twice.
+class Raw {
+public:
+    // POST youtubei/v1/<endpoint> as `client`. The library adds the context (client
+    // identity, hl/gl, visitorData), the bearer when signed in (it rides TVHTML5 only) and
+    // its transport policy (timeout, one retry after a 401 refresh, the short cache of
+    // browse/search/next). `endpoint`: "browse", "next", "account/accounts_list"… (path
+    // segments of A-Z a-z 0-9 _). `json`: the body without "context", one JSON object ("{}"
+    // for none). Delivers the response body; an "error" envelope or a non-2xx answer fails
+    // as usual. A malformed endpoint or body is ErrorCode::InvalidArgument, sent nowhere.
+    Job post(std::string endpoint, ClientId client, std::string json, Callback<std::string> done);
+    std::future<Result<std::string>> post(std::string endpoint, ClientId client, std::string json);
+    Raw(const Raw &) = delete;
+    Raw &operator=(const Raw &) = delete;
+private:
+    friend class Client;
+    explicit Raw(detail::Engine *e) : m_e(e) {}
+    detail::Engine *m_e;
+};
+
 class Client {
 public:
     explicit Client(ClientOptions options = {});   // throws std::invalid_argument without a transport
@@ -221,6 +243,7 @@ public:
     Comments &comments() { return m_comments; }
     Account &account() { return m_account; }
     Auth &auth() { return *m_auth; }
+    Raw &raw() { return m_raw; }                     // unstable: see class Raw
 
     // The next page of any list (Page::next). The last page's cursor fails with
     // ErrorCode::InvalidArgument and sends nothing.
@@ -248,6 +271,7 @@ private:
     Feeds m_feeds;
     Comments m_comments;
     Account m_account;
+    Raw m_raw;
 };
 
 }

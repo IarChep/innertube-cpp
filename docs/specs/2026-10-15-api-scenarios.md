@@ -12,7 +12,10 @@ and subscriptions keep `Page<Channel>` (a search hit carries handle, subscribers
 more than a `ChannelRef`); `CommentThread::replyText` is the displayed count ("1.2K"), not a
 number; `VideoItem` has no `isLive` / `isShort` (`Player::details.isLive` is the reliable
 signal; shorts come with phase 3); `PlaylistEntry` is plain `VideoItem` (removal goes by video
-id); `Channel::tabs` waits for phase 3.
+id); `Channel::tabs` waits for phase 3. R8: `yt.raw().post(endpoint, ClientId, json)` (both forms)
+returns the response body as text; a malformed endpoint (anything but `[A-Za-z0-9_]` path
+segments) or body (not one object, or its own "context") is InvalidArgument. R9: `cmake
+--install` + `find_package(innertube)` / `innertube.pc`.
 
 **How to read it.** Each scenario is a user-level task ("play a pasted link", not "call
 /player"). It shows the proposed code, and — where the difference matters — today's code for the
