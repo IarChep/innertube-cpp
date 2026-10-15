@@ -238,6 +238,7 @@ which family a shape belongs to. Reuse a `gj` piece before declaring a new one (
 | `comments.h` | `rj` | `commentEntityPayload` |
 | `watch.h` | `rj` | `/next` primary info, like/dislike toggles, owner, like-status entity |
 | `account.h` | `rj` | `accounts_list` items, the `mdx/handoff` sign-in QR |
+| `playlist.h` | `rj` | the playlist page (`VL<id>` browse) sidebar: title, stats, owner |
 | `player.h` | `pj` | the `/player` answer |
 | `timedtext.h` | `tj` | json3 captions |
 | `oauth.h`, `ryd.h` | `oj` | services outside InnerTube: Google OAuth, Return YouTube Dislike |
