@@ -4,7 +4,7 @@
 //   yt-watch <videoId>     e.g. dQw4w9WgXcQ
 //
 // Shows: watch (video + related), votes (returnyoutubedislike), comments and their
-// continuation paging (CommentPage::next fed back as `page`).
+// paging (Page::next handed to Client::more).
 #include <yt/client.h>
 #include <cstdio>
 
@@ -42,18 +42,18 @@ int main(int argc, char **argv)
 
     // Two pages of comments: the second request is started from the first's callback.
     int pagesLeft = 2;
-    yt::Callback<yt::CommentPage> onComments = [&](const yt::Result<yt::CommentPage> &r) {
+    yt::Callback<yt::Page<yt::Comment>> onComments = [&](const yt::Result<yt::Page<yt::Comment>> &r) {
         --pending;
         if (!r.ok()) return fail(*r.error);
         if (r.value.disabled) { std::printf("comments are disabled\n"); return; }
         for (const yt::Comment &c : r.value.items) std::printf("  [%s] %s\n", c.author.c_str(), c.body.substr(0, c.body.find('\n')).c_str());   // first line
-        if (--pagesLeft > 0 && !r.value.next.empty()) {
+        if (--pagesLeft > 0 && r.value.next) {
             ++pending;
-            client.comments(id, r.value.next, onComments);
+            client.more(r.value.next, onComments);
         }
     };
     ++pending;
-    client.comments(id, "", onComments);
+    client.comments(id, onComments);
 
     while (pending > 0) client.runOnce(100);
     return rc;

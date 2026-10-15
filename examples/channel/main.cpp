@@ -2,7 +2,7 @@
 //
 //   yt-channel <url>     e.g. https://www.youtube.com/@NASA
 //
-// A browse of the channel id (UC…) returns its uploads as a VideoPage.
+// A browse of the channel id (UC…) returns its uploads as a Page<Video>.
 #include <yt/client.h>
 #include <cstdio>
 
@@ -24,7 +24,7 @@ int main(int argc, char **argv)
         const yt::Channel &c = r.value;
         std::printf("%s (%s) %s · %s · %s\n", c.name.c_str(), c.id.c_str(), c.handle.c_str(),
                     c.subscriberCount.c_str(), c.videoCount.c_str());
-        client.browse({c.id, "", ""}, [&](const yt::Result<yt::VideoPage> &p) {
+        client.browse({c.id, ""}, [&](const yt::Result<yt::Page<yt::Video>> &p) {
             if (!p.ok()) return fail(*p.error);
             for (const yt::Video &v : p.value.items)
                 std::printf("  %-12s %-8s %s\n", v.id.c_str(), v.duration.c_str(), v.title.c_str());

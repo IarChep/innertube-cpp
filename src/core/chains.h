@@ -11,6 +11,7 @@
 #include <yt/result.h>
 #include <yt/types.h>
 #include <yt/player.h>
+#include "core/cursor.h"
 #include "core/ihttp.h"
 #include "core/job.h"
 #include <functional>
@@ -20,8 +21,9 @@ namespace yt::core {
 
 struct VideoListSpec {
     enum Kind { Browse, Search } kind = Browse;
-    std::string browseId, params, page;      // Browse (page = continuation)
-    std::string query, order;                // Search
+    std::string browseId, params;                       // Browse (params: a tab selector)
+    std::string query;                                  // Search
+    SearchSort sort = SearchSort::Relevance;
 };
 enum ActionKind { Subscribe, Unsubscribe, Like, Dislike, RemoveLike };
 
@@ -34,9 +36,25 @@ struct TokenGrant {
     long httpStatus = 0;
 };
 
-void fetchVideoList(IHttp &, const VideoListSpec &, const JobToken &, Callback<VideoPage> done);
+// Every list chain delivers a Page<T> whose cursor names the endpoint and the client that
+// served it; fetchMore continues it with exactly those (YouTube continues a list only for
+// the client that started it — a signed-in feed is TVHTML5 on every page).
+void fetchVideoList(IHttp &, const VideoListSpec &, const JobToken &, Callback<Page<Video>> done);
+// Two steps: /next by videoId discovers the comments continuation, which is page 1.
+// No comments panel = comments turned off: an empty page with `disabled`.
+void fetchComments(IHttp &, std::string videoId, const JobToken &, Callback<Page<Comment>> done);
+void fetchUserSearch(IHttp &, std::string query, const JobToken &, Callback<Page<Channel>> done);
+// A channel-list feed (FEchannels — the manage-subscriptions grid).
+void fetchChannelList(IHttp &, std::string browseId, const JobToken &, Callback<Page<Channel>> done);
+void fetchPlaylists(IHttp &, std::string resourceId, std::string params, const JobToken &, Callback<Page<Playlist>> done);
+void fetchPlaylistSearch(IHttp &, std::string query, const JobToken &, Callback<Page<Playlist>> done);
+// The next page of a list. A false cursor (the last page) fails with InvalidArgument and
+// sends nothing.
+void fetchMore(IHttp &, const Cursor<Video> &, const JobToken &, Callback<Page<Video>> done);
+void fetchMore(IHttp &, const Cursor<Channel> &, const JobToken &, Callback<Page<Channel>> done);
+void fetchMore(IHttp &, const Cursor<Playlist> &, const JobToken &, Callback<Page<Playlist>> done);
+void fetchMore(IHttp &, const Cursor<Comment> &, const JobToken &, Callback<Page<Comment>> done);
 void fetchWatch(IHttp &, std::string videoId, const JobToken &, Callback<WatchResult> done);
-void fetchComments(IHttp &, std::string videoId, std::string page, const JobToken &, Callback<CommentPage> done);
 // The /player client walk (spec §2): WEB seeds visitorData when missing, then VISIONOS
 // → ANDROID_VR → TVHTML5 (signed in) → IOS, each asked only while a kind in
 // request.want is still missing. Every answer that carried a wanted kind becomes a
@@ -52,11 +70,6 @@ void fetchChannelById(IHttp &, std::string channelId, const JobToken &, Callback
 void fetchChannelByUrl(IHttp &, std::string url, const JobToken &, Callback<Channel> done);
 // The viewer's subscribe state — an AUTHED TVHTML5 browse (WEB is anonymous).
 void fetchChannelSubscribed(IHttp &, std::string channelId, const JobToken &, Callback<bool> done);
-void fetchUserSearch(IHttp &, std::string query, const JobToken &, Callback<ChannelPage> done);
-// A channel-list feed (FEchannels — the manage-subscriptions grid).
-void fetchChannelList(IHttp &, std::string browseId, std::string page, const JobToken &, Callback<ChannelPage> done);
-void fetchPlaylists(IHttp &, std::string resourceId, std::string page, std::string params, const JobToken &, Callback<PlaylistPage> done);
-void fetchPlaylistSearch(IHttp &, std::string query, const JobToken &, Callback<PlaylistPage> done);
 void fetchAccount(IHttp &, const JobToken &, Callback<Account> done);
 void submitAction(IHttp &, ActionKind, std::string targetId, const JobToken &, Callback<Done> done);
 void postComment(IHttp &, std::string createParams, std::string text, const JobToken &, Callback<Done> done);

@@ -303,60 +303,170 @@ TEST_CASE("HLS still missing after VISIONOS: IOS is asked, without a playback co
     CHECK_FALSE(has(t.sent[2], "playbackContext"));
 }
 
-// ---- fetchVideoList ----
+// ---- lists: Page<T> + cursors ----
+namespace {
+template <class T> std::string tokenOf(const Cursor<T> &c) { return detail::CursorAccess::token(c); }
+const char *kSearchPage1 =
+    "{\"contents\":{\"twoColumnSearchResultsRenderer\":{\"primaryContents\":{\"sectionListRenderer\":{\"contents\":["
+    "{\"itemSectionRenderer\":{\"contents\":[{\"videoRenderer\":{\"videoId\":\"aaa11111111\",\"title\":{\"runs\":[{\"text\":\"A\"}]}}}]}},"
+    "{\"continuationItemRenderer\":{\"continuationEndpoint\":{\"continuationCommand\":{\"token\":\"SEARCH1\"}}}}]}}}}}";
+const char *kSearchPage2 =
+    "{\"onResponseReceivedCommands\":[{\"appendContinuationItemsAction\":{\"continuationItems\":["
+    "{\"itemSectionRenderer\":{\"contents\":[{\"videoRenderer\":{\"videoId\":\"bbb22222222\",\"title\":{\"runs\":[{\"text\":\"B\"}]}}}]}}]}}]}";
+}
+
 TEST_CASE("videoBrowseFeed") {
     FakeHttp t; t.queue("browse", loadFixtureRaw("browse_feed.json"));
     VideoListSpec spec; spec.kind = VideoListSpec::Browse; spec.browseId = "FEwhat_to_watch";
-    Cap<VideoPage> c;
+    Cap<Page<Video>> c;
     fetchVideoList(t, spec, newJob(), c.fn());
     t.flush();
     CHECK(c.calls == 1);
     REQUIRE(c.r.ok());
     REQUIRE(c.r.value.items.size() == 2);
     CHECK(c.r.value.items[0].id == "ccc33333333");
-    CHECK(c.r.value.next == "FEEDNEXT");
+    CHECK(tokenOf(c.r.value.next) == "FEEDNEXT");
     CHECK(has(t.sent[0], "\"browseId\":\"FEwhat_to_watch\""));
 }
-TEST_CASE("videoSearchVideos") {
-    FakeHttp t; t.queue("search", loadFixtureRaw("search_videos.json"));
-    VideoListSpec spec; spec.kind = VideoListSpec::Search; spec.query = "cats"; spec.order = "date";
-    Cap<VideoPage> c;
-    fetchVideoList(t, spec, newJob(), c.fn());
+TEST_CASE("a signed-in feed continues on the client that served page 1") {
+    FakeHttp t; t.session().bearer = "tok";
+    t.queue("browse", loadFixtureRaw("browse_feed.json"));
+    t.queue("browse", loadFixtureRaw("browse_feed.json"));
+    VideoListSpec spec; spec.browseId = "FEsubscriptions";
+    Cap<Page<Video>> first, second;
+    fetchVideoList(t, spec, newJob(), first.fn());
     t.flush();
-    CHECK(c.calls == 1);
-    CHECK(c.r.ok());
+    REQUIRE(first.r.ok());
+    REQUIRE(first.r.value.next);
+    fetchMore(t, first.r.value.next, newJob(), second.fn());
+    t.flush();
+    REQUIRE(second.r.ok());
+    CHECK(t.sentClients == std::vector<int>{(int) ClientId::TVHTML5, (int) ClientId::TVHTML5});
+    CHECK(t.sent[1] == "{\"continuation\":\"FEEDNEXT\"}");
+}
+// Review focus: the second search page posts only the continuation — resending the query
+// makes YouTube answer page 1 again.
+TEST_CASE("search pages continue through the search endpoint without the query") {
+    FakeHttp t;
+    t.queue("search", kSearchPage1);
+    t.queue("search", kSearchPage2);
+    VideoListSpec spec; spec.kind = VideoListSpec::Search; spec.query = "cats"; spec.sort = SearchSort::UploadDate;
+    Cap<Page<Video>> first, second;
+    fetchVideoList(t, spec, newJob(), first.fn());
+    t.flush();
+    REQUIRE(first.r.ok());
     CHECK(has(t.sent[0], "\"query\":\"cats\""));
     CHECK(has(t.sent[0], "\"params\":\"CAISAhAB\""));
-}
-TEST_CASE("videoBrowseContinuation") {
-    FakeHttp t; t.queue("browse", loadFixtureRaw("browse_feed.json"));
-    VideoListSpec spec; spec.kind = VideoListSpec::Browse; spec.browseId = "FEwhat_to_watch"; spec.page = "SOMETOKEN";
-    Cap<VideoPage> c;
-    fetchVideoList(t, spec, newJob(), c.fn());
+    CHECK(tokenOf(first.r.value.next) == "SEARCH1");
+    fetchMore(t, first.r.value.next, newJob(), second.fn());
     t.flush();
-    CHECK(c.calls == 1);
-    CHECK(has(t.sent[0], "\"continuation\":"));
-    CHECK_FALSE(has(t.sent[0], "\"browseId\":"));
+    REQUIRE(second.r.ok());
+    REQUIRE(second.r.value.items.size() == 1);
+    CHECK(second.r.value.items[0].id == "bbb22222222");
+    CHECK(t.sent[1] == "{\"continuation\":\"SEARCH1\"}");
+    CHECK(t.lastClientFor("search") == (int) ClientId::WEB);
+    CHECK_FALSE(second.r.value.next);                 // the last page
 }
-TEST_CASE("videoAuthedFeedBrowses") {
-    FakeHttp t; t.queue("browse", loadFixtureRaw("browse_feed.json"));
-    VideoListSpec spec; spec.kind = VideoListSpec::Browse; spec.browseId = "FEsubscriptions";
-    Cap<VideoPage> c;
-    fetchVideoList(t, spec, newJob(), c.fn());
+// Review focus: an exhausted cursor fails and sends nothing.
+TEST_CASE("more with no next page fails with InvalidArgument and sends nothing") {
+    FakeHttp t;
+    Cap<Page<Video>> c;
+    fetchMore(t, Cursor<Video>{}, newJob(), c.fn());
     t.flush();
-    CHECK(c.calls == 1);
-    CHECK(c.r.ok());
-    CHECK(has(t.sent[0], "\"browseId\":\"FEsubscriptions\""));
+    REQUIRE(c.calls == 1);
+    REQUIRE_FALSE(c.r.ok());
+    CHECK(c.r.error->code == ErrorCode::InvalidArgument);
+    CHECK(t.sent.empty());
 }
 TEST_CASE("videoListTransportErrorKeepsCode") {
     FakeHttp t; t.queue("browse", "{\"error\":{}}", 401);
-    VideoListSpec spec; spec.kind = VideoListSpec::Browse; spec.browseId = "FEsubscriptions";
-    Cap<VideoPage> c;
+    VideoListSpec spec; spec.browseId = "FEsubscriptions";
+    Cap<Page<Video>> c;
     fetchVideoList(t, spec, newJob(), c.fn());
     t.flush();
     REQUIRE_FALSE(c.r.ok());
     CHECK(c.r.error->code == ErrorCode::Api);
     CHECK(c.r.error->httpStatus == 401);
+}
+TEST_CASE("comments: two steps, then pages through next") {
+    FakeHttp t;
+    t.queue("next", loadFixtureRaw("next_for_comments.json"));
+    t.queue("next", loadFixtureRaw("comments_page.json"));
+    t.queue("next", loadFixtureRaw("comments_page.json"));
+    Cap<Page<Comment>> c, more;
+    fetchComments(t, "aaa11111111", newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    CHECK(c.r.value.items.size() == 2);
+    CHECK(tokenOf(c.r.value.next) == "MORE_COMMENTS");
+    CHECK(has(t.sent[0], "\"videoId\":\"aaa11111111\""));
+    CHECK(has(t.sent[1], "\"continuation\":\"COMMENTS_TOKEN\""));
+    fetchMore(t, c.r.value.next, newJob(), more.fn());
+    t.flush();
+    REQUIRE(more.r.ok());
+    CHECK(t.sent[2] == "{\"continuation\":\"MORE_COMMENTS\"}");
+    CHECK(t.lastClientFor("next") == (int) ClientId::WEB);
+}
+TEST_CASE("commentsDisabled") {
+    FakeHttp t; t.queue("next", "{}");
+    Cap<Page<Comment>> c;
+    fetchComments(t, "aaa11111111", newJob(), c.fn());
+    t.flush();
+    CHECK(t.sent.size() == 1);
+    REQUIRE(c.r.ok());
+    CHECK(c.r.value.items.empty());
+    CHECK(c.r.value.disabled);
+    CHECK_FALSE(c.r.value.next);
+}
+TEST_CASE("commentsCanceledBetweenSteps") {
+    FakeHttp t;
+    t.queue("next", loadFixtureRaw("next_for_comments.json"));
+    t.queue("next", loadFixtureRaw("comments_page.json"));
+    JobToken job = newJob();
+    Cap<Page<Comment>> c;
+    fetchComments(t, "aaa11111111", job, c.fn());
+    job->canceled = true;
+    t.flush();
+    CHECK(c.calls == 0);
+    CHECK(t.sent.size() == 1);
+}
+TEST_CASE("playlistSearch") {
+    FakeHttp t;
+    t.queue("search", "{\"contents\":[{\"playlistRenderer\":{\"playlistId\":\"PL1\",\"title\":{\"simpleText\":\"L\"}}}]}");
+    Cap<Page<Playlist>> c;
+    fetchPlaylistSearch(t, "foo", newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    REQUIRE(c.r.value.items.size() == 1);
+    CHECK(c.r.value.items[0].id == "PL1");
+    CHECK(has(t.sent[0], "\"params\":\"EgIQAw==\""));
+}
+TEST_CASE("channelListBrowsesGrid") {
+    FakeHttp t; t.session().bearer = "tok";
+    t.queue("browse",
+            "{\"contents\":[{\"gridChannelRenderer\":{\"channelId\":\"UCsub1\","
+            "\"title\":{\"simpleText\":\"Sub One\"}}},"
+            "{\"gridChannelRenderer\":{\"channelId\":\"UCsub2\","
+            "\"title\":{\"simpleText\":\"Sub Two\"}}}]}");
+    Cap<Page<Channel>> c;
+    fetchChannelList(t, "FEchannels", newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    REQUIRE(c.r.value.items.size() == 2);
+    CHECK(c.r.value.items[0].id == "UCsub1");
+    CHECK(has(t.sent[0], "\"browseId\":\"FEchannels\""));
+    CHECK(t.lastClientFor("browse") == (int) ClientId::TVHTML5);
+}
+TEST_CASE("playlistBrowse") {
+    FakeHttp t;
+    t.queue("browse", "{\"contents\":[{\"playlistRenderer\":{\"playlistId\":\"PL9\",\"title\":{\"simpleText\":\"X\"}}}]}");
+    Cap<Page<Playlist>> c;
+    fetchPlaylists(t, "UCabc", "", newJob(), c.fn());
+    t.flush();
+    REQUIRE(c.r.ok());
+    REQUIRE(c.r.value.items.size() == 1);
+    CHECK(c.r.value.items[0].id == "PL9");
+    CHECK(has(t.sent[0], "\"browseId\":\"UCabc\""));
 }
 
 // ---- fetchWatch ----
@@ -373,54 +483,6 @@ TEST_CASE("videoLoadWatch") {
     CHECK(has(t.sent[0], "\"videoId\":\"vid42\""));
 }
 
-// ---- fetchComments ----
-TEST_CASE("commentsTwoStep") {
-    FakeHttp t;
-    t.queue("next", loadFixtureRaw("next_for_comments.json"));
-    t.queue("next", loadFixtureRaw("comments_page.json"));
-    Cap<CommentPage> c;
-    fetchComments(t, "aaa11111111", "", newJob(), c.fn());
-    t.flush();
-    CHECK(c.calls == 1);
-    REQUIRE(c.r.ok());
-    CHECK(c.r.value.items.size() == 2);
-    CHECK(c.r.value.next == "MORE_COMMENTS");
-    CHECK(has(t.sent[0], "\"videoId\":\"aaa11111111\""));
-    CHECK(has(t.sent[1], "\"continuation\":\"COMMENTS_TOKEN\""));
-}
-TEST_CASE("commentsDisabled") {
-    FakeHttp t; t.queue("next", "{}");
-    Cap<CommentPage> c;
-    fetchComments(t, "aaa11111111", "", newJob(), c.fn());
-    t.flush();
-    CHECK(t.sent.size() == 1);
-    CHECK(c.calls == 1);
-    CHECK(c.r.ok());
-    CHECK(c.r.value.items.empty());
-    CHECK(c.r.value.disabled);
-}
-TEST_CASE("commentsDirectContinuation") {
-    FakeHttp t; t.queue("next", loadFixtureRaw("comments_page.json"));
-    Cap<CommentPage> c;
-    fetchComments(t, "", "EXISTING_TOKEN", newJob(), c.fn());
-    t.flush();
-    CHECK(t.sent.size() == 1);
-    CHECK(has(t.sent[0], "\"continuation\":\"EXISTING_TOKEN\""));
-    CHECK(c.calls == 1);
-    CHECK(c.r.ok());
-}
-TEST_CASE("commentsCanceledBetweenSteps") {
-    FakeHttp t;
-    t.queue("next", loadFixtureRaw("next_for_comments.json"));
-    t.queue("next", loadFixtureRaw("comments_page.json"));
-    JobToken job = newJob();
-    Cap<CommentPage> c;
-    fetchComments(t, "aaa11111111", "", job, c.fn());
-    job->canceled = true;
-    t.flush();
-    CHECK(c.calls == 0);
-    CHECK(t.sent.size() == 1);
-}
 
 // ---- postComment ----
 TEST_CASE("postCommentSucceeds") {
@@ -444,48 +506,6 @@ TEST_CASE("postCommentTransportFails") {
 }
 
 // ---- playlists / channels ----
-TEST_CASE("playlistSearch") {
-    FakeHttp t;
-    t.queue("search", "{\"contents\":[{\"playlistRenderer\":{\"playlistId\":\"PL1\",\"title\":{\"simpleText\":\"L\"}}}]}");
-    Cap<PlaylistPage> c;
-    fetchPlaylistSearch(t, "foo", newJob(), c.fn());
-    t.flush();
-    CHECK(c.calls == 1);
-    REQUIRE(c.r.ok());
-    REQUIRE(c.r.value.items.size() == 1);
-    CHECK(c.r.value.items[0].id == "PL1");
-    CHECK(has(t.sent[0], "\"params\":\"EgIQAw==\""));
-}
-TEST_CASE("channelListBrowsesGrid") {
-    FakeHttp t; t.session().bearer = "tok";
-    t.queue("browse",
-            "{\"contents\":[{\"gridChannelRenderer\":{\"channelId\":\"UCsub1\","
-            "\"title\":{\"simpleText\":\"Sub One\"}}},"
-            "{\"gridChannelRenderer\":{\"channelId\":\"UCsub2\","
-            "\"title\":{\"simpleText\":\"Sub Two\"}}}]}");
-    Cap<ChannelPage> c;
-    fetchChannelList(t, "FEchannels", "", newJob(), c.fn());
-    t.flush();
-    CHECK(c.calls == 1);
-    REQUIRE(c.r.ok());
-    REQUIRE(c.r.value.items.size() == 2);
-    CHECK(c.r.value.items[0].id == "UCsub1");
-    CHECK(c.r.value.items[0].name == "Sub One");
-    CHECK(has(t.sent[0], "\"browseId\":\"FEchannels\""));
-    CHECK(t.lastClientFor("browse") == (int)ClientId::TVHTML5);
-}
-TEST_CASE("playlistBrowse") {
-    FakeHttp t;
-    t.queue("browse", "{\"contents\":[{\"playlistRenderer\":{\"playlistId\":\"PL9\",\"title\":{\"simpleText\":\"X\"}}}]}");
-    Cap<PlaylistPage> c;
-    fetchPlaylists(t, "UCabc", "", "", newJob(), c.fn());
-    t.flush();
-    CHECK(c.calls == 1);
-    REQUIRE(c.r.ok());
-    REQUIRE(c.r.value.items.size() == 1);
-    CHECK(c.r.value.items[0].id == "PL9");
-    CHECK(has(t.sent[0], "\"browseId\":\"UCabc\""));
-}
 TEST_CASE("userResolveThenBrowse") {
     FakeHttp t;
     t.queue("navigation/resolve_url", "{\"endpoint\":{\"browseEndpoint\":{\"browseId\":\"UCabc\"}}}");
@@ -532,7 +552,7 @@ TEST_CASE("channelSubscribedUsesTv") {
 TEST_CASE("userSearch") {
     FakeHttp t;
     t.queue("search", "{\"contents\":[{\"channelRenderer\":{\"channelId\":\"UCx\",\"title\":{\"simpleText\":\"Ch\"}}}]}");
-    Cap<ChannelPage> c;
+    Cap<Page<Channel>> c;
     fetchUserSearch(t, "foo", newJob(), c.fn());
     t.flush();
     CHECK(c.calls == 1);
@@ -740,7 +760,7 @@ TEST_CASE("canceledJobDropsDelivery") {
     VideoListSpec spec; spec.kind = VideoListSpec::Browse; spec.browseId = "FEwhat_to_watch";
     JobToken job = newJob();
     int calls = 0;
-    fetchVideoList(t, spec, job, [&](const Result<VideoPage> &) { ++calls; });
+    fetchVideoList(t, spec, job, [&](const Result<Page<Video>> &) { ++calls; });
     job->canceled = true;
     t.flush();
     CHECK(calls == 0);
@@ -750,7 +770,7 @@ TEST_CASE("routing") {
         FakeHttp http;
         if (signedIn) http.session().bearer = "tok";
         VideoListSpec s; s.kind = VideoListSpec::Browse; s.browseId = id;
-        fetchVideoList(http, s, newJob(), [](const Result<VideoPage> &) {});
+        fetchVideoList(http, s, newJob(), [](const Result<Page<Video>> &) {});
         return http.lastClientFor("browse");
     };
     CHECK(browseClient("FEwhat_to_watch", true) == (int)ClientId::TVHTML5);

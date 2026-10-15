@@ -90,11 +90,11 @@ int fail(const yt::Error &e)
     return 1;
 }
 
-void printVideos(const yt::VideoPage &p)
+void printVideos(const yt::Page<yt::Video> &p)
 {
     for (const yt::Video &v : p.items)
         std::printf("%-12s %-8s %s — %s\n", v.id.c_str(), v.duration.c_str(), v.title.c_str(), v.channelName.c_str());
-    if (!p.next.empty()) std::printf("(more: continuation %zu bytes)\n", p.next.size());
+    if (p.next) std::printf("(more available)\n");
 }
 
 } // namespace
@@ -117,12 +117,12 @@ int main(int argc, char **argv)
     int rc = 0;
 
     if (cmd == "feed") {
-        client.browse({arg, "", ""}, [&](const yt::Result<yt::VideoPage> &r) {
+        client.browse({arg, ""}, [&](const yt::Result<yt::Page<yt::Video>> &r) {
             if (r.ok()) printVideos(r.value); else rc = fail(*r.error);
             mq.finish();
         });
     } else if (cmd == "search") {
-        client.search({arg, "relevance"}, [&](const yt::Result<yt::VideoPage> &r) {
+        client.search({arg}, [&](const yt::Result<yt::Page<yt::Video>> &r) {
             if (r.ok()) printVideos(r.value); else rc = fail(*r.error);
             mq.finish();
         });

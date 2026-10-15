@@ -20,7 +20,7 @@ Video parseTileRenderer(std::string_view t);
 std::vector<Video> parseVideoList(std::string_view response, std::string *nextToken);
 // createCommentParams (out, nullable): the create-comment box's submit token, scraped
 // best-effort from the comments-section create-comment command (R4 — exact source
-// unverified; left empty when absent). Threaded into CommentPage so the model can post.
+// unverified; left empty when absent). core::postComment reads it to post a comment.
 std::vector<Comment> parseComments(std::string_view response, std::string *nextToken,
                                  std::string *createCommentParams = 0);
 Playlist parsePlaylistRenderer(std::string_view r);

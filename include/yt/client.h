@@ -43,8 +43,8 @@ struct ClientOptions {
     std::map<ClientId, ClientInfo> clients;                      // client version/UA overrides
 };
 
-struct BrowseRequest { std::string browseId, params, page; };   // page = continuation token
-struct SearchRequest { std::string query, order; };             // order: relevance|date|views|rating
+struct BrowseRequest { std::string browseId, params; };
+struct SearchRequest { std::string query; SearchSort sort = SearchSort::Relevance; };
 enum class Action { Subscribe, Unsubscribe, Like, Dislike, RemoveLike };
 
 namespace detail { struct Engine; struct JobHandle; }
@@ -69,10 +69,10 @@ public:
     Client(const Client &) = delete;
     Client &operator=(const Client &) = delete;
 
-    Job browse(BrowseRequest request, Callback<VideoPage> done);
-    Job search(SearchRequest request, Callback<VideoPage> done);
+    Job browse(BrowseRequest request, Callback<Page<Video>> done);
+    Job search(SearchRequest request, Callback<Page<Video>> done);
     Job watch(std::string videoId, Callback<WatchResult> done);
-    Job comments(std::string videoId, std::string page, Callback<CommentPage> done);
+    Job comments(std::string videoId, Callback<Page<Comment>> done);
     // Every source YouTube serves for the video (see yt/player.h); request.want limits the
     // walk to the kinds the consumer can play.
     Job player(PlayerRequest request, Callback<Player> done);
@@ -81,16 +81,22 @@ public:
     Job channel(std::string channelId, Callback<Channel> done);
     Job channelByUrl(std::string url, Callback<Channel> done);
     Job channelSubscribed(std::string channelId, Callback<bool> done);
-    Job channelList(std::string browseId, std::string page, Callback<ChannelPage> done);
-    Job searchChannels(std::string query, Callback<ChannelPage> done);
-    Job playlists(std::string resourceId, std::string page, std::string params, Callback<PlaylistPage> done);
-    Job searchPlaylists(std::string query, Callback<PlaylistPage> done);
+    Job channelList(std::string browseId, Callback<Page<Channel>> done);
+    Job searchChannels(std::string query, Callback<Page<Channel>> done);
+    Job playlists(std::string resourceId, std::string params, Callback<Page<Playlist>> done);
+    Job searchPlaylists(std::string query, Callback<Page<Playlist>> done);
     Job account(Callback<Account> done);
     Job action(Action action, std::string targetId, Callback<Done> done);
     Job postComment(std::string createParams, std::string text, Callback<Done> done);
     Job editPlaylist(std::string playlistId, bool add, std::string id, Callback<Done> done);
     Job votes(std::string videoId, Callback<Votes> done);                    // returnyoutubedislike
     Job suggestions(std::string query, Callback<std::vector<std::string>> done);
+    // The next page of any list (Page::next). The last page's cursor fails with
+    // ErrorCode::InvalidArgument and sends nothing.
+    Job more(const Cursor<Video> &next, Callback<Page<Video>> done);
+    Job more(const Cursor<Channel> &next, Callback<Page<Channel>> done);
+    Job more(const Cursor<Playlist> &next, Callback<Page<Playlist>> done);
+    Job more(const Cursor<Comment> &next, Callback<Page<Comment>> done);
 
     Auth &auth() { return *m_auth; }
     void setLocale(std::string hl, std::string gl);   // empty keeps the current value; clears caches

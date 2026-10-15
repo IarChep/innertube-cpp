@@ -237,37 +237,10 @@ namespace {
 template <class T> using Chain = std::function<void(core::IHttp &, const core::JobToken &, Callback<T>)>;
 }
 
-Job Client::browse(BrowseRequest req, Callback<VideoPage> done)
-{
-    return m_engine->start<Result<VideoPage>>([req](core::IHttp &h, const core::JobToken &t, Callback<VideoPage> d) {
-        core::VideoListSpec s;
-        s.kind = core::VideoListSpec::Browse;
-        s.browseId = req.browseId; s.params = req.params; s.page = req.page;
-        core::fetchVideoList(h, s, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::search(SearchRequest req, Callback<VideoPage> done)
-{
-    return m_engine->start<Result<VideoPage>>([req](core::IHttp &h, const core::JobToken &t, Callback<VideoPage> d) {
-        core::VideoListSpec s;
-        s.kind = core::VideoListSpec::Search;
-        s.query = req.query; s.order = req.order;
-        core::fetchVideoList(h, s, t, std::move(d));
-    }, std::move(done));
-}
-
 Job Client::watch(std::string videoId, Callback<WatchResult> done)
 {
     return m_engine->start<Result<WatchResult>>([videoId](core::IHttp &h, const core::JobToken &t, Callback<WatchResult> d) {
         core::fetchWatch(h, videoId, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::comments(std::string videoId, std::string page, Callback<CommentPage> done)
-{
-    return m_engine->start<Result<CommentPage>>([videoId, page](core::IHttp &h, const core::JobToken &t, Callback<CommentPage> d) {
-        core::fetchComments(h, videoId, page, t, std::move(d));
     }, std::move(done));
 }
 
@@ -304,34 +277,6 @@ Job Client::channelSubscribed(std::string channelId, Callback<bool> done)
 {
     return m_engine->start<Result<bool>>([channelId](core::IHttp &h, const core::JobToken &t, Callback<bool> d) {
         core::fetchChannelSubscribed(h, channelId, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::channelList(std::string browseId, std::string page, Callback<ChannelPage> done)
-{
-    return m_engine->start<Result<ChannelPage>>([browseId, page](core::IHttp &h, const core::JobToken &t, Callback<ChannelPage> d) {
-        core::fetchChannelList(h, browseId, page, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::searchChannels(std::string query, Callback<ChannelPage> done)
-{
-    return m_engine->start<Result<ChannelPage>>([query](core::IHttp &h, const core::JobToken &t, Callback<ChannelPage> d) {
-        core::fetchUserSearch(h, query, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::playlists(std::string resourceId, std::string page, std::string params, Callback<PlaylistPage> done)
-{
-    return m_engine->start<Result<PlaylistPage>>([resourceId, page, params](core::IHttp &h, const core::JobToken &t, Callback<PlaylistPage> d) {
-        core::fetchPlaylists(h, resourceId, page, params, t, std::move(d));
-    }, std::move(done));
-}
-
-Job Client::searchPlaylists(std::string query, Callback<PlaylistPage> done)
-{
-    return m_engine->start<Result<PlaylistPage>>([query](core::IHttp &h, const core::JobToken &t, Callback<PlaylistPage> d) {
-        core::fetchPlaylistSearch(h, query, t, std::move(d));
     }, std::move(done));
 }
 
@@ -384,6 +329,90 @@ Job Client::suggestions(std::string query, Callback<std::vector<std::string>> do
         [query](core::IHttp &h, const core::JobToken &t, Callback<std::vector<std::string>> d) {
             core::fetchSearchSuggestions(h, query, t, std::move(d));
         }, std::move(done));
+}
+
+Job Client::browse(BrowseRequest req, Callback<Page<Video>> done)
+{
+    return m_engine->start<Result<Page<Video>>>([req](core::IHttp &h, const core::JobToken &t, Callback<Page<Video>> d) {
+        core::VideoListSpec s;
+        s.kind = core::VideoListSpec::Browse;
+        s.browseId = req.browseId; s.params = req.params;
+        core::fetchVideoList(h, s, t, std::move(d));
+    }, std::move(done));
+}
+
+Job Client::search(SearchRequest req, Callback<Page<Video>> done)
+{
+    return m_engine->start<Result<Page<Video>>>([req](core::IHttp &h, const core::JobToken &t, Callback<Page<Video>> d) {
+        core::VideoListSpec s;
+        s.kind = core::VideoListSpec::Search;
+        s.query = req.query; s.sort = req.sort;
+        core::fetchVideoList(h, s, t, std::move(d));
+    }, std::move(done));
+}
+
+Job Client::comments(std::string videoId, Callback<Page<Comment>> done)
+{
+    return m_engine->start<Result<Page<Comment>>>([videoId](core::IHttp &h, const core::JobToken &t, Callback<Page<Comment>> d) {
+        core::fetchComments(h, videoId, t, std::move(d));
+    }, std::move(done));
+}
+
+Job Client::channelList(std::string browseId, Callback<Page<Channel>> done)
+{
+    return m_engine->start<Result<Page<Channel>>>([browseId](core::IHttp &h, const core::JobToken &t, Callback<Page<Channel>> d) {
+        core::fetchChannelList(h, browseId, t, std::move(d));
+    }, std::move(done));
+}
+
+Job Client::searchChannels(std::string query, Callback<Page<Channel>> done)
+{
+    return m_engine->start<Result<Page<Channel>>>([query](core::IHttp &h, const core::JobToken &t, Callback<Page<Channel>> d) {
+        core::fetchUserSearch(h, query, t, std::move(d));
+    }, std::move(done));
+}
+
+Job Client::playlists(std::string resourceId, std::string params, Callback<Page<Playlist>> done)
+{
+    return m_engine->start<Result<Page<Playlist>>>(
+        [resourceId, params](core::IHttp &h, const core::JobToken &t, Callback<Page<Playlist>> d) {
+            core::fetchPlaylists(h, resourceId, params, t, std::move(d));
+        }, std::move(done));
+}
+
+Job Client::searchPlaylists(std::string query, Callback<Page<Playlist>> done)
+{
+    return m_engine->start<Result<Page<Playlist>>>([query](core::IHttp &h, const core::JobToken &t, Callback<Page<Playlist>> d) {
+        core::fetchPlaylistSearch(h, query, t, std::move(d));
+    }, std::move(done));
+}
+
+Job Client::more(const Cursor<Video> &next, Callback<Page<Video>> done)
+{
+    return m_engine->start<Result<Page<Video>>>([next](core::IHttp &h, const core::JobToken &t, Callback<Page<Video>> d) {
+        core::fetchMore(h, next, t, std::move(d));
+    }, std::move(done));
+}
+
+Job Client::more(const Cursor<Channel> &next, Callback<Page<Channel>> done)
+{
+    return m_engine->start<Result<Page<Channel>>>([next](core::IHttp &h, const core::JobToken &t, Callback<Page<Channel>> d) {
+        core::fetchMore(h, next, t, std::move(d));
+    }, std::move(done));
+}
+
+Job Client::more(const Cursor<Playlist> &next, Callback<Page<Playlist>> done)
+{
+    return m_engine->start<Result<Page<Playlist>>>([next](core::IHttp &h, const core::JobToken &t, Callback<Page<Playlist>> d) {
+        core::fetchMore(h, next, t, std::move(d));
+    }, std::move(done));
+}
+
+Job Client::more(const Cursor<Comment> &next, Callback<Page<Comment>> done)
+{
+    return m_engine->start<Result<Page<Comment>>>([next](core::IHttp &h, const core::JobToken &t, Callback<Page<Comment>> d) {
+        core::fetchMore(h, next, t, std::move(d));
+    }, std::move(done));
 }
 
 namespace testing {

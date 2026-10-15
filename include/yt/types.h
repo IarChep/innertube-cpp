@@ -46,10 +46,6 @@ enum class Rating { None, Like, Dislike };                       // the viewer's
 enum class SearchSort { Relevance, UploadDate, Views, TopRated };
 struct SearchOptions { SearchSort sort = SearchSort::Relevance; };
 
-struct VideoPage    { std::vector<Video> items; std::string next; };
-struct PlaylistPage { std::vector<Playlist> items; std::string next; };
-struct ChannelPage  { std::vector<Channel> items; std::string next; };
-struct CommentPage  { std::vector<Comment> items; std::string next; std::string createCommentParams; bool disabled = false; };
 struct WatchResult  { Video primary; std::vector<Video> related; };
 struct Votes        { std::optional<int64_t> likes, dislikes; };
 }
