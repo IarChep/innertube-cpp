@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <optional>
 
 namespace yt::net {
 

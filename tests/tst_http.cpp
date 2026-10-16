@@ -5,7 +5,6 @@
 #include <doctest/doctest.h>
 #include "net/httpclient.h"
 #include "faketransport.h"
-#include <thread>
 
 using yt::ClientId;
 using yt::ErrorCode;

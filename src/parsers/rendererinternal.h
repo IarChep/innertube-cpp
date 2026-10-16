@@ -12,7 +12,6 @@
 #include "textmatch.h"
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace yt {
 
@@ -23,21 +22,6 @@ using gj::lastThumbUrl;
 using gj::textOf;
 using json::Value;
 using json::Visit;
-
-// The leaf renderer keys of the list collectors: a matched renderer is converted and NOT
-// looked into, and the rest of the object holding it is skipped (Visit::SkipRest) — the
-// old walkers' early `return`.
-inline bool isVideoKind(std::string_view key)
-{
-    return key == "videoRenderer" || key == "compactVideoRenderer"
-        || key == "gridVideoRenderer" || key == "playlistVideoRenderer";
-}
-
-inline bool isPlaylistKind(std::string_view key)
-{
-    return key == "playlistRenderer" || key == "gridPlaylistRenderer"
-        || key == "compactPlaylistRenderer";
-}
 
 // videoRenderer / compactVideoRenderer / gridVideoRenderer / playlistVideoRenderer.
 inline VideoItem fromVideoRenderer(Value r)
