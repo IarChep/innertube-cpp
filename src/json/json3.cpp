@@ -1,22 +1,21 @@
-// json3 caption parsing: one partial read of events[] (see json3.h).
+// json3 caption parsing: the events[] of one document (see json3.h).
 #include "json/json3.h"
-#include "json/shapes/timedtext.h"
+#include "json/json.h"
+#include "json/ytjson.h"
 namespace yt {
 
-std::vector<Cue> parseJson3(const std::string &body)
+std::vector<Cue> parseJson3(std::string_view body)
 {
-    tj::Root root{};
-    gj::readJsonDoc(root, body);
+    const json::Doc doc(body);
     std::vector<Cue> out;
-    if (!root.events) return out;
-    for (const tj::Event &e : *root.events) {
-        if (!e.segs) continue;                        // window/pen definitions
+    for (json::Value e : doc["events"].items()) {
+        if (!e["segs"]) continue;                     // window/pen definitions
         std::string text;
-        for (const tj::Seg &s : *e.segs) if (s.utf8) text += *s.utf8;
+        for (json::Value s : e["segs"].items()) text += s["utf8"].str();
         if (text.find_first_not_of(" \n") == std::string::npos) continue;   // ASR line-append
         Cue c;
-        c.startMs = gj::toInt64(e.tStartMs);
-        c.endMs = c.startMs + gj::toInt64(e.dDurationMs);
+        c.startMs = gj::flexInt(e["tStartMs"]);
+        c.endMs = c.startMs + gj::flexInt(e["dDurationMs"]);
         c.text = std::move(text);
         out.push_back(std::move(c));
     }

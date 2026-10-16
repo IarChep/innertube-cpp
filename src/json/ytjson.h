@@ -4,6 +4,7 @@
 // the machinery every parser shares. The JSON shapes themselves live in
 // json/shapes/ (one header per API family). Pure std types only.
 //
+#include "json/json.h"
 #include <glaze/json.hpp>
 
 #include <charconv>
@@ -91,6 +92,57 @@ inline bool base64Decode(std::string_view in, std::string *out)
         }
     }
     return true;
+}
+
+// ---- reading InnerTube shapes over yt::json ---------------------------------
+// {"simpleText": "…"} or {"runs": [{"text": "…"}, …]}: simpleText wins, else the runs
+// joined, else "" (also for anything that is not such an object).
+inline std::string textOf(json::Value t)
+{
+    if (const json::Value s = t["simpleText"]; s.isString()) return s.string();
+    std::string out;
+    for (json::Value r : t["runs"].items()) out += r["text"].str();
+    return out;
+}
+
+// YouTube channel avatars come back protocol-relative ("//yt3.ggpht.com/..."); Qt's image
+// loader rejects the missing scheme ("Unsupported protocol"). Force it to https.
+inline std::string withScheme(std::string u)
+{
+    if (u.size() >= 2 && u[0] == '/' && u[1] == '/')
+        u.insert(0, "https:");
+    return u;
+}
+
+// {"thumbnails": [{"url": …}, …]} is ordered small→large: the last url, "" when absent.
+inline std::string lastThumbUrl(json::Value set) { return withScheme(set["thumbnails"].last()["url"].string()); }
+// View-model images, {"sources": [{"url": …}, …]}, also small→large.
+inline std::string lastSourceUrl(json::Value set) { return withScheme(set["sources"].last()["url"].string()); }
+inline std::string firstSourceUrl(json::Value set) { return withScheme(set["sources"][0]["url"].string()); }
+
+// InnerTube counts arrive as JSON numbers (itag, width) or quoted strings
+// (videoDetails.viewCount): an integer, a float (truncated), or a strictly numeric string;
+// anything else — including a partial numeric prefix like "12a" — is 0.
+inline std::int64_t flexInt(json::Value v)
+{
+    std::int64_t n = 0;
+    if (v.toInt(n)) return n;
+    double d = 0;
+    if (v.toDouble(d)) return (d > -9.2e18 && d < 9.2e18) ? (std::int64_t) d : 0;
+    const std::string_view s = v.str();
+    const std::from_chars_result r = std::from_chars(s.data(), s.data() + s.size(), n, 10);
+    return (!s.empty() && r.ec == std::errc() && r.ptr == s.data() + s.size()) ? n : 0;
+}
+
+// The first member named key anywhere below v, in document order; absent when none.
+inline json::Value first(json::Value v, std::string_view key)
+{
+    json::Value got;
+    v.find({key}, [&](std::string_view, json::Value x) {
+        got = x;
+        return json::Visit::Stop;
+    });
+    return got;
 }
 
 } // namespace gj

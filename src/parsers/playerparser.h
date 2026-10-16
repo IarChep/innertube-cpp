@@ -3,10 +3,11 @@
 // fail: malformed input yields absent fields / empty lists.
 #ifndef YT_PLAYERPARSER_H
 #define YT_PLAYERPARSER_H
+#include <yt/player.h>
+#include "json/json.h"
 #include <string>
 #include <string_view>
 #include <vector>
-#include <yt/player.h>
 namespace yt {
 
 // The full view of one /player answer the client walk needs: one partial Glaze read,
@@ -22,7 +23,7 @@ struct PlayerPart {
     std::string storyboardSpec;           // storyboards.playerStoryboardSpecRenderer.spec
     std::string watchtimeUrl, playbackUrl;
 };
-PlayerPart parsePlayerResponse(const std::string &body);
+PlayerPart parsePlayerResponse(json::Value root);
 // "<template>|w#h#count#cols#rows#intervalMs#name#sigh|…" → levels; a level whose
 // interval is 0 gets lengthSecs·1000 / count. Malformed levels are skipped.
 std::vector<StoryboardLevel> parseStoryboardSpec(std::string_view spec, int64_t lengthSecs);

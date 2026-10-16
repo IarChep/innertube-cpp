@@ -1,18 +1,17 @@
 // /player answers → the client walk's view (PlayerPart) and storyboard specs. A fixed
-// root-level schema (json/shapes/player.h): one typed partial read (unknown keys
-// skipped); only the offline slate, whose path differs per client, is a bounded scan.
+// root-level schema read by path; only the offline slate, whose path differs per client,
+// is searched for.
 #include "playerparser.h"
-#include "json/jsonscan.h"
-#include "json/shapes/player.h"
+#include "json/ytjson.h"
 #include <charconv>
 #include <climits>
 #include <cstdint>
 #include <string>
 namespace yt {
 
-using namespace gj;
-static const std::string &str(const std::string &s) { return s; }
-static std::string str(const std::optional<std::string> &s) { return s ? str(*s) : std::string(); }
+using gj::flexInt;
+using gj::textOf;
+using json::Value;
 
 namespace {
 
@@ -62,59 +61,46 @@ int64_t unixFromIso8601(std::string_view s)
     return t;
 }
 
-// The offline slate lies under playabilityStatus on WEB-family answers and elsewhere on
-// others: find the renderer anywhere, bounded by kScanMaxDepth like every scan.
-struct SlateFinder {
-    std::string_view found;
-    void enter(int) {}
-    void leave(int) {}
-    scan::Action what(std::string_view k, int)
-    {
-        if (!found.empty()) return scan::Action::Skip;
-        return k == "liveStreamOfflineSlateRenderer" ? scan::Action::Capture : scan::Action::Descend;
-    }
-    void capture(std::string_view, std::string_view v, int) { found = v; }
-};
-
-Format formatOf(const pj::FormatJ &f, bool muxed)
+Format formatOf(Value f, bool muxed)
 {
     Format o;
-    o.itag = (int) toInt64(f.itag);
-    o.url = str(f.url);
-    o.sealed = o.url.empty() && (f.signatureCipher.has_value() || f.cipher.has_value());
-    const std::string mime = str(f.mimeType);         // video/mp4; codecs="avc1.640028"
+    o.itag = (int) flexInt(f["itag"]);
+    o.url = f["url"].string();
+    o.sealed = o.url.empty() && (f["signatureCipher"] || f["cipher"]);
+    const std::string mime = f["mimeType"].string();   // video/mp4; codecs="avc1.640028"
     o.mimeType = mime.substr(0, mime.find(';'));
     const size_t q = mime.find("codecs=\"");
     if (q != std::string::npos) {
         const size_t b = q + 8, e = mime.find('"', b);
         o.codecs = mime.substr(b, e == std::string::npos ? std::string::npos : e - b);
     }
-    o.qualityLabel = str(f.qualityLabel);
-    o.width = (int) toInt64(f.width);
-    o.height = (int) toInt64(f.height);
-    o.fps = (int) toInt64(f.fps);
-    o.bitrate = toInt64(f.bitrate);
-    o.averageBitrate = toInt64(f.averageBitrate);
-    o.contentLength = toInt64(f.contentLength);
-    o.durationMs = toInt64(f.approxDurationMs);
-    o.lastModified = toInt64(f.lastModified);
-    if (f.initRange) o.initRange = ByteRange{toInt64(f.initRange->start), toInt64(f.initRange->end)};
-    if (f.indexRange) o.indexRange = ByteRange{toInt64(f.indexRange->start), toInt64(f.indexRange->end)};
-    o.xtags = str(f.xtags);
+    o.qualityLabel = f["qualityLabel"].string();
+    o.width = (int) flexInt(f["width"]);
+    o.height = (int) flexInt(f["height"]);
+    o.fps = (int) flexInt(f["fps"]);
+    o.bitrate = flexInt(f["bitrate"]);
+    o.averageBitrate = flexInt(f["averageBitrate"]);
+    o.contentLength = flexInt(f["contentLength"]);
+    o.durationMs = flexInt(f["approxDurationMs"]);
+    o.lastModified = flexInt(f["lastModified"]);
+    if (const Value r = f["initRange"]) o.initRange = ByteRange{flexInt(r["start"]), flexInt(r["end"])};
+    if (const Value r = f["indexRange"]) o.indexRange = ByteRange{flexInt(r["start"]), flexInt(r["end"])};
+    o.xtags = f["xtags"].string();
     o.hasVideo = o.mimeType.rfind("video/", 0) == 0;
     o.hasAudio = muxed || o.mimeType.rfind("audio/", 0) == 0;
-    const bool drcFlag = f.isDrc.value_or(false);
-    if (f.audioTrack || drcFlag) {
+    const bool drcFlag = f["isDrc"].boolean();
+    const Value track = f["audioTrack"];
+    if (track || drcFlag) {
         // xtags is a small protobuf whose pairs ("acont" → "original" / "dubbed" /
         // "dubbed-auto", "drc" → "1") are in clear text; displayName is localized and
         // useless as a marker.
         std::string marks;
-        base64Decode(o.xtags, &marks);
+        gj::base64Decode(o.xtags, &marks);
         AudioTrack a;
-        if (f.audioTrack) {
-            a.id = str(f.audioTrack->id);
-            a.name = str(f.audioTrack->displayName);
-            a.isDefault = f.audioTrack->audioIsDefault.value_or(false);
+        if (track) {
+            a.id = track["id"].string();
+            a.name = track["displayName"].string();
+            a.isDefault = track["audioIsDefault"].boolean();
             a.language = a.id.substr(0, a.id.find('.'));
         }
         a.original = marks.find("original") != std::string::npos;
@@ -151,83 +137,64 @@ void replaceAll(std::string &s, std::string_view what, std::string_view with)
 
 } // namespace
 
-PlayerPart parsePlayerResponse(const std::string &body)
+PlayerPart parsePlayerResponse(Value root)
 {
-    pj::Root root{};
-    readJsonDoc(root, body);
     PlayerPart p;
-    if (root.playabilityStatus) {
-        const pj::StatusJ &st = *root.playabilityStatus;
-        p.status.status = str(st.status);
-        p.status.reason = str(st.reason);
-        p.status.kind = kindOf(p.status.status, st.desktopLegacyAgeGateReason.has_value());
-    }
+    const Value st = root["playabilityStatus"];
+    p.status.status = st["status"].string();
+    p.status.reason = st["reason"].string();
+    p.status.kind = kindOf(p.status.status, (bool) st["desktopLegacyAgeGateReason"]);
     if (p.status.status == "LIVE_STREAM_OFFLINE") {
-        SlateFinder sf;
-        scan::document(body, sf);
-        if (!sf.found.empty()) {
-            pj::SlateJ sl{};
-            readJson(sl, sf.found);
-            p.status.scheduledStartSecs = toInt64(sl.scheduledStartTime);
-            const std::string main = textOf(sl.mainText), sub = textOf(sl.subtitleText);
+        // The offline slate lies under playabilityStatus on WEB-family answers and
+        // elsewhere on others: find the renderer anywhere.
+        if (const Value sl = gj::first(root, "liveStreamOfflineSlateRenderer")) {
+            p.status.scheduledStartSecs = flexInt(sl["scheduledStartTime"]);
+            const std::string main = textOf(sl["mainText"]), sub = textOf(sl["subtitleText"]);
             p.status.slateText = (!main.empty() && !sub.empty()) ? main + "\n" + sub : main + sub;
         }
-        if (p.status.scheduledStartSecs <= 0 && root.microformat && root.microformat->playerMicroformatRenderer
-            && root.microformat->playerMicroformatRenderer->liveBroadcastDetails)
-            p.status.scheduledStartSecs =
-                unixFromIso8601(str(root.microformat->playerMicroformatRenderer->liveBroadcastDetails->startTimestamp));
+        if (p.status.scheduledStartSecs <= 0)
+            p.status.scheduledStartSecs = unixFromIso8601(
+                root.path("microformat", "playerMicroformatRenderer", "liveBroadcastDetails", "startTimestamp").str());
         if (p.status.scheduledStartSecs > 0) p.status.kind = Playability::Upcoming;
     }
     p.final = p.status.status == "ERROR" || p.status.kind == Playability::Upcoming
            || p.status.kind == Playability::LiveOffline;
-    if (root.streamingData) {
-        const pj::StreamingJ &sd = *root.streamingData;
-        if (sd.formats) for (const pj::FormatJ &f : *sd.formats) p.formats.push_back(formatOf(f, true));
-        if (sd.adaptiveFormats)
-            for (const pj::FormatJ &f : *sd.adaptiveFormats) p.formats.push_back(formatOf(f, false));
-        p.hlsUrl = str(sd.hlsManifestUrl);
-        p.dashUrl = str(sd.dashManifestUrl);
-        p.sabrUrl = str(sd.serverAbrStreamingUrl);
-        p.expiresInSecs = toInt64(sd.expiresInSeconds);
-    }
-    if (root.playerConfig && root.playerConfig->mediaCommonConfig
-        && root.playerConfig->mediaCommonConfig->mediaUstreamerRequestConfig)
-        p.sabrConfig =
-            str(root.playerConfig->mediaCommonConfig->mediaUstreamerRequestConfig->videoPlaybackUstreamerConfig);
-    if (root.videoDetails) {
-        const pj::DetailsJ &d = *root.videoDetails;
-        p.details.id = str(d.videoId);
-        p.details.title = str(d.title);
-        p.details.author = str(d.author);
-        p.details.channelId = str(d.channelId);
-        p.details.description = str(d.shortDescription);
-        p.details.lengthSecs = toInt64(d.lengthSeconds);
-        p.details.viewCount = toInt64(d.viewCount);
-        p.details.isLive = d.isLive.value_or(false);
-        p.details.isLiveContent = d.isLiveContent.value_or(false);
-        p.details.isUpcoming = d.isUpcoming.value_or(false);
-        p.details.thumbnailUrl = lastThumbUrl(d.thumbnail);
+    const Value sd = root["streamingData"];
+    for (Value f : sd["formats"].items()) p.formats.push_back(formatOf(f, true));
+    for (Value f : sd["adaptiveFormats"].items()) p.formats.push_back(formatOf(f, false));
+    p.hlsUrl = sd["hlsManifestUrl"].string();
+    p.dashUrl = sd["dashManifestUrl"].string();
+    p.sabrUrl = sd["serverAbrStreamingUrl"].string();
+    p.expiresInSecs = flexInt(sd["expiresInSeconds"]);
+    p.sabrConfig = root.path("playerConfig", "mediaCommonConfig", "mediaUstreamerRequestConfig",
+                             "videoPlaybackUstreamerConfig").string();
+    if (const Value d = root["videoDetails"]) {
+        p.details.id = d["videoId"].string();
+        p.details.title = d["title"].string();
+        p.details.author = d["author"].string();
+        p.details.channelId = d["channelId"].string();
+        p.details.description = d["shortDescription"].string();
+        p.details.lengthSecs = flexInt(d["lengthSeconds"]);
+        p.details.viewCount = flexInt(d["viewCount"]);
+        p.details.isLive = d["isLive"].boolean();
+        p.details.isLiveContent = d["isLiveContent"].boolean();
+        p.details.isUpcoming = d["isUpcoming"].boolean();
+        p.details.thumbnailUrl = gj::lastThumbUrl(d["thumbnail"]);
         if (p.details.thumbnailUrl.empty() && !p.details.id.empty())
             p.details.thumbnailUrl = "https://i.ytimg.com/vi/" + p.details.id + "/hqdefault.jpg";
     }
-    if (root.captions && root.captions->playerCaptionsTracklistRenderer
-        && root.captions->playerCaptionsTracklistRenderer->captionTracks)
-        for (const pj::TrackJ &t : *root.captions->playerCaptionsTracklistRenderer->captionTracks) {
-            CaptionTrack c;
-            c.url = str(t.baseUrl);
-            c.language = str(t.languageCode);
-            c.name = textOf(t.name);
-            c.autoGenerated = str(t.kind) == "asr";
-            c.translatable = t.isTranslatable.value_or(false);
-            if (!c.url.empty()) p.captions.push_back(std::move(c));
-        }
-    if (root.storyboards && root.storyboards->playerStoryboardSpecRenderer)
-        p.storyboardSpec = str(root.storyboards->playerStoryboardSpecRenderer->spec);
-    if (root.playbackTracking) {
-        const pj::TrackingJ &tr = *root.playbackTracking;
-        if (tr.videostatsWatchtimeUrl) p.watchtimeUrl = str(tr.videostatsWatchtimeUrl->baseUrl);
-        if (tr.videostatsPlaybackUrl) p.playbackUrl = str(tr.videostatsPlaybackUrl->baseUrl);
+    for (Value t : root.path("captions", "playerCaptionsTracklistRenderer", "captionTracks").items()) {
+        CaptionTrack c;
+        c.url = t["baseUrl"].string();
+        c.language = t["languageCode"].string();
+        c.name = textOf(t["name"]);
+        c.autoGenerated = t["kind"].str() == "asr";
+        c.translatable = t["isTranslatable"].boolean();
+        if (!c.url.empty()) p.captions.push_back(std::move(c));
     }
+    p.storyboardSpec = root.path("storyboards", "playerStoryboardSpecRenderer", "spec").string();
+    p.watchtimeUrl = root.path("playbackTracking", "videostatsWatchtimeUrl", "baseUrl").string();
+    p.playbackUrl = root.path("playbackTracking", "videostatsPlaybackUrl", "baseUrl").string();
     return p;
 }
 

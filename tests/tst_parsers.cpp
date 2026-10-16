@@ -4,8 +4,9 @@
 #include <doctest/doctest.h>
 #include "innertube/playerjs.h"
 #include "parsers/continuation.h"
+#include "json/json.h"
 #include "json/json3.h"
-#include "json/shapes/common.h"
+#include "json/ytjson.h"
 #include "parsers/rendererparser.h"
 #include "parsers/playerparser.h"
 #include "parsers/suggestparser.h"
@@ -13,9 +14,19 @@
 #include "testutil.h"
 #include "parserpayloads.h"
 
+#include <deque>
+#include <memory>
 #include <string>
 
 using namespace yt;
+
+// Parsers read json::Values; the fixtures are JSON text. Each Doc keeps its own copy of
+// the text and lives until the suite ends, so a Value never outlives what it points into.
+static json::Value J(std::string_view text)
+{
+    static std::deque<json::Doc> docs;
+    return docs.emplace_back(std::make_shared<const std::string>(text)).root();
+}
 
 TEST_CASE("textmatch") {
     using namespace yt::gj;
@@ -32,28 +43,22 @@ TEST_CASE("textmatch") {
 
 TEST_CASE("suggestionsParsed") {
     const std::string body = "[\"cat\",[\"cat videos\",\"cats\",\"cat memes\"]]";
-    std::vector<std::string> s = parseSuggestions(body);
+    std::vector<std::string> s = parseSuggestions(J(body));
     REQUIRE(s.size() == 3);
     CHECK(s[0] == "cat videos");
     CHECK(s[2] == "cat memes");
 }
 TEST_CASE("suggestionsGarbageIsEmpty") {
-    CHECK(parseSuggestions(std::string("not json")).empty());
-    CHECK(parseSuggestions(std::string("[\"only-query\"]")).empty());
+    CHECK(parseSuggestions(J(std::string("not json"))).empty());
+    CHECK(parseSuggestions(J(std::string("[\"only-query\"]"))).empty());
 }
 TEST_CASE("flexIntParses") {
-    gj::FlexInt s = std::string("1234");
-    CHECK(gj::toInt64(s) == 1234);
-    gj::FlexInt i = (std::int64_t)42;
-    CHECK(gj::toInt64(i) == 42);
-    gj::FlexInt bad = std::string("abc");
-    CHECK(gj::toInt64(bad) == 0);
-    gj::FlexInt partial = std::string("12a");
-    CHECK(gj::toInt64(partial) == 0);
-    std::optional<gj::FlexInt> missing;
-    CHECK(gj::toInt64(missing) == 0);
-    gj::FlexInt f = 3.9;
-    CHECK(gj::toInt64(f) == 3);
+    CHECK(gj::flexInt(J("\"1234\"")) == 1234);
+    CHECK(gj::flexInt(J("42")) == 42);
+    CHECK(gj::flexInt(J("\"abc\"")) == 0);
+    CHECK(gj::flexInt(J("\"12a\"")) == 0);
+    CHECK(gj::flexInt(json::Value()) == 0);
+    CHECK(gj::flexInt(J("3.9")) == 3);
 }
 TEST_CASE("parseTextBehavior") {
     CHECK(parseText(payloads::kSimpleText) == "hi");
@@ -306,7 +311,7 @@ TEST_CASE("base64Decode") {
 
 // ---- /player (parsePlayerResponse) ----
 TEST_CASE("playerResponseVisionos") {
-    const PlayerPart p = parsePlayerResponse(loadFixtureRaw("player_visionos_ok.json"));
+    const PlayerPart p = parsePlayerResponse(J(loadFixtureRaw("player_visionos_ok.json")));
     CHECK(p.status.kind == Playability::Ok);
     CHECK_FALSE(p.final);
     REQUIRE(p.formats.size() == 4);
@@ -358,7 +363,7 @@ TEST_CASE("playerResponseVisionos") {
     CHECK(p.details.thumbnailUrl == "https://i.ytimg.com/vi/dQw4w9WgXcQ/hq720.jpg");
 }
 TEST_CASE("playerResponseProgressiveFromFormats") {
-    const PlayerPart p = parsePlayerResponse(loadFixtureRaw("player_vr_ok.json"));
+    const PlayerPart p = parsePlayerResponse(J(loadFixtureRaw("player_vr_ok.json")));
     REQUIRE(p.formats.size() == 3);
     CHECK(p.formats[0].itag == 18);
     CHECK((p.formats[0].hasVideo && p.formats[0].hasAudio));   // formats[] are muxed
@@ -366,7 +371,7 @@ TEST_CASE("playerResponseProgressiveFromFormats") {
     CHECK(p.hlsUrl.empty());
 }
 TEST_CASE("playerResponseAudioTracks") {
-    const PlayerPart p = parsePlayerResponse(loadFixtureRaw("player_visionos_dubbed.json"));
+    const PlayerPart p = parsePlayerResponse(J(loadFixtureRaw("player_visionos_dubbed.json")));
     REQUIRE(p.formats.size() == 3);
     REQUIRE(p.formats[1].audio.has_value());
     const AudioTrack &ru = *p.formats[1].audio;
@@ -384,58 +389,60 @@ TEST_CASE("playerResponseAudioTracks") {
     CHECK(p.formats[2].xtags == "ChEKBWFjb250EghvcmlnaW5hbAoNCgRsYW5nEgVlbi1VUw");
 }
 TEST_CASE("playerResponseVerdicts") {
-    PlayerPart p = parsePlayerResponse(loadFixtureRaw("player_botcheck.json"));
+    PlayerPart p = parsePlayerResponse(J(loadFixtureRaw("player_botcheck.json")));
     CHECK(p.status.kind == Playability::BotCheck);
     CHECK(p.status.status == "LOGIN_REQUIRED");
     CHECK(p.status.reason.find("not a bot") != std::string::npos);
     CHECK_FALSE(p.final);
-    p = parsePlayerResponse(loadFixtureRaw("player_removed.json"));
+    p = parsePlayerResponse(J(loadFixtureRaw("player_removed.json")));
     CHECK(p.status.kind == Playability::Unplayable);
     CHECK(p.status.reason == "This video is unavailable");
     CHECK(p.final);
     // Review focus: the reason is localized by hl — the verdict must not read it.
-    p = parsePlayerResponse(std::string("{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\","
-        "\"reason\":\"Войдите, чтобы подтвердить, что вы не бот\"}}"));
+    p = parsePlayerResponse(J(std::string("{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\","
+        "\"reason\":\"Войдите, чтобы подтвердить, что вы не бот\"}}")));
     CHECK(p.status.kind == Playability::BotCheck);
-    p = parsePlayerResponse(std::string("{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\","
-        "\"reason\":\"Sign in to confirm your age\",\"desktopLegacyAgeGateReason\":1}}"));
+    p = parsePlayerResponse(J(std::string("{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\","
+        "\"reason\":\"Sign in to confirm your age\",\"desktopLegacyAgeGateReason\":1}}")));
     CHECK(p.status.kind == Playability::AgeRestricted);
-    p = parsePlayerResponse(std::string("{\"playabilityStatus\":{\"status\":\"AGE_CHECK_REQUIRED\"}}"));
+    p = parsePlayerResponse(J(std::string("{\"playabilityStatus\":{\"status\":\"AGE_CHECK_REQUIRED\"}}")));
     CHECK(p.status.kind == Playability::AgeRestricted);
-    p = parsePlayerResponse(std::string("not json"));
+    p = parsePlayerResponse(J(std::string("not json")));
     CHECK(p.status.kind == Playability::Unknown);
     CHECK(p.formats.empty());
 }
 TEST_CASE("playerResponseUpcoming") {
     // Shape per Troubadour (YTApi.m scheduledStartIn): no scheduled stream was at hand to capture.
-    PlayerPart p = parsePlayerResponse(std::string(
+    PlayerPart p = parsePlayerResponse(J(std::string(
         "{\"playabilityStatus\":{\"status\":\"LIVE_STREAM_OFFLINE\",\"reason\":\"This live event will begin in 3 days.\","
         "\"liveStreamability\":{\"liveStreamabilityRenderer\":{\"offlineSlate\":{\"liveStreamOfflineSlateRenderer\":"
         "{\"scheduledStartTime\":\"1792000000\",\"mainText\":{\"runs\":[{\"text\":\"Live in 3 days\"}]},"
-        "\"subtitleText\":{\"simpleText\":\"October 13, 8:00 PM\"}}}}}}}"));
+        "\"subtitleText\":{\"simpleText\":\"October 13, 8:00 PM\"}}}}}}}")));
     CHECK(p.status.kind == Playability::Upcoming);
     CHECK(p.status.scheduledStartSecs == 1792000000LL);
     CHECK(p.status.slateText == "Live in 3 days\nOctober 13, 8:00 PM");
     CHECK(p.final);
     // No slate: the microformat's ISO time (with its zone) is the fallback.
-    p = parsePlayerResponse(std::string(
+    p = parsePlayerResponse(J(std::string(
         "{\"playabilityStatus\":{\"status\":\"LIVE_STREAM_OFFLINE\"},\"microformat\":{\"playerMicroformatRenderer\":"
-        "{\"liveBroadcastDetails\":{\"startTimestamp\":\"2026-09-09T20:00:00+03:00\"}}}}"));
+        "{\"liveBroadcastDetails\":{\"startTimestamp\":\"2026-09-09T20:00:00+03:00\"}}}}")));
     CHECK(p.status.kind == Playability::Upcoming);
     CHECK(p.status.scheduledStartSecs == 1788973200LL);
-    p = parsePlayerResponse(std::string("{\"playabilityStatus\":{\"status\":\"LIVE_STREAM_OFFLINE\"}}"));
+    p = parsePlayerResponse(J(std::string("{\"playabilityStatus\":{\"status\":\"LIVE_STREAM_OFFLINE\"}}")));
     CHECK(p.status.kind == Playability::LiveOffline);
     CHECK(p.final);
 }
 TEST_CASE("playerResponseSealedFormat") {
-    const PlayerPart p = parsePlayerResponse(std::string(
+    const PlayerPart p = parsePlayerResponse(J(std::string(
         "{\"playabilityStatus\":{\"status\":\"OK\"},\"streamingData\":{\"formats\":[{\"itag\":18,"
-        "\"mimeType\":\"video/mp4\",\"signatureCipher\":\"s=AB&sp=sig&url=https%3A%2F%2Fx\"}]}}"));
+        "\"mimeType\":\"video/mp4\",\"signatureCipher\":\"s=AB&sp=sig&url=https%3A%2F%2Fx\"}]}}")));
     REQUIRE(p.formats.size() == 1);
     CHECK(p.formats[0].sealed);
     CHECK(p.formats[0].url.empty());
 }
-// The slate search walks the whole answer: it must stay bounded like every scan.
+// A crafted answer nested past json::kMaxDepth is refused whole (the transport fails it as
+// InvalidResponse); a parser handed such a document sees nothing and still returns — the
+// slate search used to walk it recursively.
 TEST_CASE("playerResponseSlateScanDepthBounded") {
     const int n = 200000;
     std::string deep = "{\"playabilityStatus\":{\"status\":\"LIVE_STREAM_OFFLINE\"},\"x\":";
@@ -443,11 +450,11 @@ TEST_CASE("playerResponseSlateScanDepthBounded") {
     deep += "{}";
     for (int i = 0; i < n; ++i) deep += "}";
     deep += "}";
-    const PlayerPart p = parsePlayerResponse(deep);   // must return, not overflow the stack
-    CHECK(p.status.kind == Playability::LiveOffline);
+    const PlayerPart p = parsePlayerResponse(J(deep));   // must return, not overflow the stack
+    CHECK(p.status.kind == Playability::Unknown);
 }
 TEST_CASE("storyboardSpec") {
-    const PlayerPart p = parsePlayerResponse(loadFixtureRaw("player_visionos_ok.json"));
+    const PlayerPart p = parsePlayerResponse(J(loadFixtureRaw("player_visionos_ok.json")));
     const std::vector<StoryboardLevel> l = parseStoryboardSpec(p.storyboardSpec, 213);
     REQUIRE(l.size() == 2);
     CHECK(l[0].urlTemplate == "https://i.ytimg.com/sb/dQw4w9WgXcQ/storyboard3_L0/default.jpg?sqp=SQP&sigh=rs$SIGH0");

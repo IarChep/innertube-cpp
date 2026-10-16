@@ -40,14 +40,6 @@ struct Thumb {
 struct ThumbSet {
     std::optional<std::vector<Thumb>> thumbnails;
 };
-// YouTube channel avatars come back protocol-relative ("//yt3.ggpht.com/..."); Qt's image
-// loader rejects the missing scheme ("Unsupported protocol"). Force it to https.
-inline std::string withScheme(std::string u)
-{
-    if (u.size() >= 2 && u[0] == '/' && u[1] == '/')
-        u.insert(0, "https:");
-    return u;
-}
 // Largest (= last) thumbnail url, "" when absent — mirrors lastThumb()/lastOf().
 inline std::string lastThumbUrl(const ThumbSet &s)
 {

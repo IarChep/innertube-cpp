@@ -8,11 +8,9 @@
 #include "innertube/catalog.h"
 #include "innertube/clientconfig.h"
 #include "innertube/playerjs.h"
+#include "json/json.h"
 #include "json/json3.h"
-#include "json/jsonscan.h"
-#include "json/shapes/account.h"
-#include "json/shapes/oauth.h"
-#include "json/shapes/ryd.h"
+#include "json/ytjson.h"
 #include "parsers/continuation.h"
 #include "parsers/playerparser.h"
 #include "parsers/rendererparser.h"
@@ -28,7 +26,6 @@ namespace {
 
 Error errorOf(const Reply &r) { return Error{r.code, r.error, r.httpStatus}; }
 Error unavailable(const char *what) { return Error{ErrorCode::Unavailable, what, 0}; }
-std::string str(const std::optional<std::string> &s) { return s ? *s : std::string(); }
 bool isPng(const std::string &b) { return b.compare(0, 8, "\x89PNG\r\n\x1a\n") == 0; }
 // "browse", "account/accounts_list": path segments of [A-Za-z0-9_] — nothing that could
 // leave the youtubei path or add a query when appended to the base URL.
@@ -174,12 +171,12 @@ TokenGrant tokenGrantOf(const Reply &r)
     g.transportOk = r.ok;
     g.httpStatus = r.httpStatus;
     if (!r.ok) g.transportError = r.error;
-    oj::Token tok{};
-    gj::readJsonDoc(tok, *r.body);
-    g.accessToken = str(tok.access_token);
-    g.refreshToken = str(tok.refresh_token);
-    g.error = str(tok.error);
-    g.expiresInSecs = (int) gj::toInt64(tok.expires_in);
+    // RFC 6749 §5.1/§5.2: the grant, or {"error": "authorization_pending" | …}.
+    const json::Value tok = r.json();
+    g.accessToken = tok["access_token"].string();
+    g.refreshToken = tok["refresh_token"].string();
+    g.error = tok["error"].string();
+    g.expiresInSecs = (int) gj::flexInt(tok["expires_in"]);
     return g;
 }
 
@@ -377,7 +374,7 @@ void seedVisitor(IHttp &http, std::shared_ptr<PlayerWalk> w, JobToken job)
     http.post("player", ClientId::WEB, bodies::player(w->req.videoId), job, [h, w, job](const Reply &r) {
         if (r.ok) {
             w->anyParsed = true;
-            PlayerPart p = parsePlayerResponse(*r.body);
+            PlayerPart p = parsePlayerResponse(r.json());
             // WEB formats are n-protected or SABR-only, and WEB answers UNPLAYABLE for
             // ordinary videos (live-verified): neither a source nor a verdict.
             p.formats.clear(); p.hlsUrl.clear(); p.sabrUrl.clear(); p.dashUrl.clear();
@@ -419,7 +416,7 @@ void playerStep(IHttp &http, std::shared_ptr<PlayerWalk> w, JobToken job)
             return;
         }
         w->anyParsed = true;
-        PlayerPart p = parsePlayerResponse(*r.body);
+        PlayerPart p = parsePlayerResponse(r.json());
         YTLOG(h->log(), "player") << "player" << h->session().clients[(int) c].name << p.status.status
             << "formats=" << p.formats.size() << "kinds=" << kindsOf(p) << "hls=" << !p.hlsUrl.empty()
             << "sabr=" << !p.sabrUrl.empty();
@@ -748,7 +745,8 @@ void rawPost(IHttp &http, std::string endpoint, ClientId client, std::string jso
     const size_t first = json.find_first_not_of(" \t\r\n"), last = json.find_last_not_of(" \t\r\n");
     const bool object = first != std::string::npos && json[first] == '{' && json[last] == '}' && last > first;
     if (object) json = json.substr(first, last - first + 1);
-    if (!object || !gj::scan::topLevelValue(json, "context").empty()) {
+    const yt::json::Doc parsed(json);              // `json` is the parameter here
+    if (!object || !parsed.root().isObject() || parsed["context"]) {
         out.error = Error{ErrorCode::InvalidArgument, "the body must be one JSON object without \"context\"", 0};
         done(out);
         return;
@@ -768,15 +766,15 @@ void oauthDeviceCode(IHttp &http, const JobToken &job, Callback<DeviceCodeGrant>
     http.postForm(Catalog::kDeviceCodeUrl, std::move(f), job, [done](const Reply &r) {
         Result<DeviceCodeGrant> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
-        oj::DeviceCode dc{};
-        gj::readJsonDoc(dc, *r.body);
-        out.value.deviceCode = str(dc.device_code);
-        out.value.userCode = str(dc.user_code);
-        out.value.verificationUrl = str(dc.verification_url);
-        if (out.value.verificationUrl.empty()) out.value.verificationUrl = str(dc.verification_uri);
-        out.value.intervalSecs = (int) gj::toInt64(dc.interval);
+        // RFC 8628 §3.2 (Google spells it verification_url).
+        const json::Value dc = r.json();
+        out.value.deviceCode = dc["device_code"].string();
+        out.value.userCode = dc["user_code"].string();
+        out.value.verificationUrl = dc["verification_url"].string();
+        if (out.value.verificationUrl.empty()) out.value.verificationUrl = dc["verification_uri"].string();
+        out.value.intervalSecs = (int) gj::flexInt(dc["interval"]);
         if (out.value.intervalSecs <= 0) out.value.intervalSecs = 5;
-        out.value.expiresInSecs = (int) gj::toInt64(dc.expires_in);
+        out.value.expiresInSecs = (int) gj::flexInt(dc["expires_in"]);
         if (out.value.deviceCode.empty() || out.value.userCode.empty())
             out.error = Error{ErrorCode::Api, "device code request failed", r.httpStatus};
         done(out);
@@ -807,13 +805,8 @@ void fetchSignInQr(IHttp &http, std::string userCode, const JobToken &job, Callb
     http.post("mdx/handoff", ClientId::TVHTML5, bodies::mdxHandoff(userCode), job, [h, job, done](const Reply &r) {
         Result<std::string> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
-        rj::Handoff hf{};
-        gj::readJsonDoc(hf, *r.body);
-        std::string url;
-        if (hf.rapidQrRenderer && hf.rapidQrRenderer->qrCodeRenderer && hf.rapidQrRenderer->qrCodeRenderer->qrCodeImage
-            && hf.rapidQrRenderer->qrCodeRenderer->qrCodeImage->thumbnails
-            && !hf.rapidQrRenderer->qrCodeRenderer->qrCodeImage->thumbnails->empty())
-            url = str(hf.rapidQrRenderer->qrCodeRenderer->qrCodeImage->thumbnails->front().url);
+        const std::string url =
+            r.json().path("rapidQrRenderer", "qrCodeRenderer", "qrCodeImage", "thumbnails")[0]["url"].string();
         static const std::string_view kData = "data:image/png;base64,";
         if (url.compare(0, kData.size(), kData) == 0) {
             if (!gj::base64Decode(std::string_view(url).substr(kData.size()), &out.value) || !isPng(out.value)) {
@@ -846,10 +839,9 @@ void fetchDislikes(IHttp &http, std::string videoId, const JobToken &job, Callba
     http.get("https://returnyoutubedislikeapi.com/votes?videoId=" + pctEncode(videoId), job, [done](const Reply &r) {
         Result<Votes> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
-        oj::Ryd v{};
-        gj::readJsonDoc(v, *r.body);
-        if (v.likes) out.value.likes = gj::toInt64(v.likes);
-        if (v.dislikes) out.value.dislikes = gj::toInt64(v.dislikes);
+        const json::Value v = r.json();
+        if (v["likes"]) out.value.likes = gj::flexInt(v["likes"]);
+        if (v["dislikes"]) out.value.dislikes = gj::flexInt(v["dislikes"]);
         done(out);
     });
 }
@@ -862,7 +854,7 @@ void fetchSearchSuggestions(IHttp &http, std::string query, const JobToken &job,
     http.get(url, job, [done](const Reply &r) {
         Result<std::vector<std::string>> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
-        out.value = parseSuggestions(*r.body);
+        out.value = parseSuggestions(r.json());
         done(out);
     });
 }
