@@ -1,90 +1,34 @@
-#include "rendererinternal.h"
+// A comments page: the threads (commentEntityPayload mutations), the next page's token and
+// the create-comment box's createCommentParams (rendererparser.h).
 #include "continuation.h"
+#include "rendererinternal.h"
 
 namespace yt {
 
-using namespace gj;
-
-// CommentScanner — single-pass: collects commentEntityPayload (consume
-// semantics, same as the old CommentCollector) AND captures the first
-// top-level onResponseReceivedEndpoints extent (for the token mini-scan)
-// AND records the first continuation token found OUTSIDE that extent.
-//
-// Token precedence after the scan reproduces the old two-call logic exactly:
-//   if (token inside onRRE extent)   → use it          (same: findContinuationTokenUnder)
-//   else if (token outside extent)   → use it          (same: findContinuationToken on whole doc)
-struct CommentScanner : CollectorBase {
-    std::vector<CommentThread> *out;
-    std::string_view onRRE;          // first top-level onResponseReceivedEndpoints extent
-    std::string outsideToken;        // first token found outside the onRRE extent
-    std::string createParams;        // first createCommentParams string found (R4)
-    bool haveCreateParams = false;
-
-    scan::Action what(std::string_view key, int d)
-    {
-        if (consumed()) return scan::Action::Skip;
-        if (key == "commentEntityPayload") { consume(); return scan::Action::Capture; }
-        // R4 best-effort: the create-comment box's submit token. It rides in the
-        // comments-section create-comment command (commentSimpleboxRenderer /
-        // ...createCommentEndpoint) as a plain string field named createCommentParams.
-        // The exact host renderer is unverified on-device — scrape the first field of
-        // that name anywhere in the response. It sits OUTSIDE any commentEntityPayload
-        // subtree, so the leaf guard above never masks it.
-        if (!haveCreateParams && key == "createCommentParams") return scan::Action::Capture;
-        // Capture the top-level onRRE extent once (depth 0 = immediate child of root).
-        if (d == 0 && key == "onResponseReceivedEndpoints" && onRRE.empty())
-            return scan::Action::Capture;
-        // Track first token outside the onRRE extent (it cannot be inside since
-        // we captured onRRE above — once captured, the scanner does not descend into it).
-        if (outsideToken.empty() && gj::isTokenKey(key)) return scan::Action::Capture;
-        return scan::Action::Descend;
-    }
-    void capture(std::string_view key, std::string_view value, int d)
-    {
-        if (key == "commentEntityPayload") {
-            rj::CommentPayload p{};
-            readJson(p, value);
-            const CommentThread t = fromCommentPayload(p);
-            if (!t.comment.text.empty()) out->push_back(t);
-            return;
-        }
-        if (!haveCreateParams && key == "createCommentParams") {
-            // The captured extent is the raw JSON string literal (with quotes);
-            // Glaze reads+unescapes it into std::string.
-            std::string s;
-            readJson(s, value);
-            if (!s.empty()) { createParams = s; haveCreateParams = true; }
-            return;
-        }
-        if (d == 0 && key == "onResponseReceivedEndpoints" && onRRE.empty()) {
-            onRRE = value;
-            return;
-        }
-        if (gj::isTokenKey(key)) {
-            gj::captureToken(key, value, &outsideToken);
-            return;
-        }
-    }
-};
-
-std::vector<CommentThread> parseComments(std::string_view response, std::string *nextToken,
-                                 std::string *createCommentParams)
+std::vector<CommentThread> parseComments(Value response, std::string *nextToken, std::string *createCommentParams)
 {
     std::vector<CommentThread> out;
-    CommentScanner s;
-    s.out = &out;
-    scan::document(response, s);
+    std::string params;
+    // R4 best-effort: the create-comment box's submit token rides in the comments-section
+    // create-comment command (commentSimpleboxRenderer / …createCommentEndpoint) as a
+    // plain string field named createCommentParams. The exact host renderer is unverified
+    // on-device — take the first field of that name anywhere outside a comment payload.
+    response.find({"commentEntityPayload", "createCommentParams"}, [&](std::string_view key, Value v) {
+        if (key == "createCommentParams") {
+            if (params.empty()) params = v.string();
+            return Visit::Skip;
+        }
+        const CommentThread t = fromCommentPayload(v);
+        if (!t.comment.text.empty()) out.push_back(t);
+        return Visit::SkipRest;
+    });
+    // The page's own token sits under onResponseReceivedEndpoints; elsewhere a reply
+    // thread's token could come first.
     if (nextToken) {
-        // Prefer token inside onResponseReceivedEndpoints (mini-scan), else
-        // the first token found outside it during the main scan.
-        std::string t;
-        if (!s.onRRE.empty()) t = findContinuationToken(s.onRRE);
-        if (t.empty() && !s.outsideToken.empty())
-            t = std::string(s.outsideToken);
-        *nextToken = t;
+        *nextToken = findContinuationTokenUnder(response, "onResponseReceivedEndpoints");
+        if (nextToken->empty()) *nextToken = findContinuationToken(response);
     }
-    if (createCommentParams)   // R4: empty when the create-comment box wasn't present
-        *createCommentParams = std::string(s.createParams);
+    if (createCommentParams) *createCommentParams = params;   // R4: empty when the box wasn't present
     return out;
 }
 

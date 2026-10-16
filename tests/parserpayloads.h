@@ -108,7 +108,7 @@ inline const char *kNextLikedWeb = R"({"contents":{"twoColumnWatchNextResults":{
             }}
         ]}}
     }}
-]}}}}}})";
+]}}}}})";
 
 // Authed TVHTML5 /next: the owner block carries the viewer's subscribe state in
 // videoOwnerRenderer.subscribeButton.subscribeButtonRenderer.subscribed (a video the
@@ -122,7 +122,7 @@ inline const char *kNextSubscribedTv = R"({"contents":{"singleColumnWatchNextRes
             "subscribeButton": {"subscribeButtonRenderer": {"subscribed": true, "enabled": true}}
         }}
     }}
-]}}}}}})";
+]}}}}})";
 
 // Authed TVHTML5 /next: the like COUNT rides likeButtonRenderer.likeCountText (YouTube's
 // own "8.8K", NOT RYD), and the viewer's like STATE rides frameworkUpdates ->

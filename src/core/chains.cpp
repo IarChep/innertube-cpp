@@ -99,7 +99,7 @@ std::string sortParam(SearchSort sort)
 // the channel that was browsed (page 1 learns its name from the channel header).
 ChannelRef &channelOf(VideoItem &v) { return v.channel; }
 ChannelRef &channelOf(Playlist &p) { return p.owner; }
-template <class T> void claim(std::vector<T> &items, detail::Owner &owner, const std::string &body)
+template <class T> void claim(std::vector<T> &items, detail::Owner &owner, json::Value body)
 {
     if constexpr (std::is_same_v<T, VideoItem> || std::is_same_v<T, Playlist>) {
         if (owner.id.empty()) return;
@@ -120,9 +120,9 @@ HttpFn pageOf(Callback<Page<T>> done, std::string endpoint, ClientId client, Par
         Result<Page<T>> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
         std::string next;
-        out.value.items = parse(*r.body, &next);
+        out.value.items = parse(r.json(), &next);
         detail::Owner o = owner;
-        claim(out.value.items, o, *r.body);
+        claim(out.value.items, o, r.json());
         out.value.next = detail::CursorAccess::make<T>(endpoint, client, std::move(next), std::move(o));
         done(out);
     };
@@ -151,10 +151,10 @@ void moreOf(IHttp &http, const Cursor<T> &c, const JobToken &job, Callback<Page<
               pageOf<T>(std::move(done), endpoint, client, parse, detail::CursorAccess::owner(c)));
 }
 
-const auto kParseVideos = [](const std::string &b, std::string *n) { return parseVideoList(b, n); };
-const auto kParseUsers = [](const std::string &b, std::string *n) { return parseUserList(b, n); };
-const auto kParsePlaylists = [](const std::string &b, std::string *n) { return parsePlaylistList(b, n); };
-const auto kParseComments = [](const std::string &b, std::string *n) { return parseComments(b, n); };
+const auto kParseVideos = [](json::Value b, std::string *n) { return parseVideoList(b, n); };
+const auto kParseUsers = [](json::Value b, std::string *n) { return parseUserList(b, n); };
+const auto kParsePlaylists = [](json::Value b, std::string *n) { return parsePlaylistList(b, n); };
+const auto kParseComments = [](json::Value b, std::string *n) { return parseComments(b, n); };
 
 HttpFn doneOf(Callback<Done> done)
 {
@@ -189,7 +189,7 @@ void fetchCommentsFirst(IHttp &http, std::string videoId, const JobToken &job,
     http.post("next", ClientId::WEB, bodies::nextVideo(videoId), job, [h, job, done](const Reply &r) {
         Result<Page<CommentThread>> out;
         if (!r.ok) { out.error = errorOf(r); done(out, std::string()); return; }
-        const std::string token = findContinuationTokenUnder(*r.body, "engagementPanels");
+        const std::string token = findContinuationTokenUnder(r.json(), "engagementPanels");
         // No panel/token = comments disabled (e.g. made-for-kids): an empty, successful
         // page flagged `disabled` (distinct from a video with zero comments).
         if (token.empty()) { out.value.disabled = true; done(out, std::string()); return; }
@@ -199,7 +199,7 @@ void fetchCommentsFirst(IHttp &http, std::string videoId, const JobToken &job,
             std::string createParams;
             if (!p.ok) { page.error = errorOf(p); done(page, createParams); return; }
             std::string next;
-            page.value.items = parseComments(*p.body, &next, &createParams);
+            page.value.items = parseComments(p.json(), &next, &createParams);
             page.value.next = detail::CursorAccess::make<CommentThread>("next", ClientId::WEB, std::move(next));
             done(page, createParams);
         });
@@ -217,7 +217,7 @@ void fetchWatch(IHttp &http, std::string videoId, const JobToken &job, Callback<
         Result<Video> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
         std::string relatedNext;
-        parseWatchPage(*r.body, &out.value, &relatedNext);
+        parseWatchPage(r.json(), &out.value, &relatedNext);
         out.value.id = videoId;                      // /next does not echo the id
         out.value.related.next = detail::CursorAccess::make<VideoItem>("next", cid, std::move(relatedNext));
         done(out);
@@ -494,7 +494,7 @@ void fetchChannelById(IHttp &http, std::string channelId, const JobToken &job, C
     http.post("browse", ClientId::WEB, bodies::browse(channelId, ""), job, [done](const Reply &r) {
         Result<Channel> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
-        out.value = parseChannel(*r.body);
+        out.value = parseChannel(r.json());
         if (out.value.id.empty() && out.value.name.empty()) out.error = unavailable("channel unavailable");
         done(out);
     });
@@ -505,7 +505,7 @@ void fetchChannelSubscribed(IHttp &http, std::string channelId, const JobToken &
     http.post("browse", ClientId::TVHTML5, bodies::browse(channelId, ""), job, [done](const Reply &r) {
         Result<bool> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
-        out.value = parseChannelSubscribed(*r.body);
+        out.value = parseChannelSubscribed(r.json());
         done(out);
     });
 }
@@ -544,7 +544,7 @@ void fetchChannelId(IHttp &http, std::string link, const JobToken &job, Callback
     http.post("navigation/resolve_url", ClientId::WEB, bodies::resolveUrl(l->url()), job, [done](const Reply &r) {
         Result<std::string> id;
         if (!r.ok) { id.error = errorOf(r); done(id); return; }
-        id.value = parseResolvedBrowseId(*r.body);
+        id.value = parseResolvedBrowseId(r.json());
         if (id.value.rfind("UC", 0) != 0) { id.value.clear(); id.error = unavailable("could not resolve channel"); }
         done(id);
     });
@@ -655,10 +655,10 @@ void fetchPlaylist(IHttp &http, std::string playlistId, const JobToken &job, Cal
     http.post("browse", cid, bodies::browse(browseId, ""), job, [playlistId, cid, done](const Reply &r) {
         Result<Playlist> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
-        out.value = parsePlaylistPage(*r.body);
+        out.value = parsePlaylistPage(r.json());
         out.value.id = playlistId;
         std::string next;
-        out.value.entries.items = parseVideoList(*r.body, &next);
+        out.value.entries.items = parseVideoList(r.json(), &next);
         out.value.entries.next = detail::CursorAccess::make<VideoItem>("browse", cid, std::move(next));
         done(out);
     });
@@ -692,7 +692,7 @@ void fetchAccount(IHttp &http, const JobToken &job, Callback<AccountInfo> done)
     http.post("account/accounts_list", ClientId::TVHTML5, bodies::accountsList(), job, [done](const Reply &r) {
         Result<AccountInfo> out;
         if (!r.ok) { out.error = errorOf(r); done(out); return; }
-        out.value = parseAccountsList(*r.body);
+        out.value = parseAccountsList(r.json());
         if (out.value.name.empty() && out.value.channelId.empty()) out.error = unavailable("account unavailable");
         done(out);
     });

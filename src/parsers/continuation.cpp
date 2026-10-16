@@ -1,40 +1,35 @@
+// Continuation tokens (continuation.h). A wrapper whose token is missing or empty does
+// not stop the search: the next one in document order is tried.
 #include "continuation.h"
-#include "json/tokenscan.h"
-#include "json/jsonscan.h"
 namespace yt {
 
-using namespace gj;
+bool isTokenKey(std::string_view k)
+{
+    return k == "continuationCommand" || k == "nextContinuationData" || k == "reloadContinuationData";
+}
 
-// DFS-first-match over the whole tree, single pass. A wrapper whose token
-// string is missing/empty does not stop the search (the old fall-through).
-// Delegates to captureToken (from tokenscan.h) which encodes the same logic.
-struct TokenFinder {
+std::string tokenOf(std::string_view key, json::Value w)
+{
+    if (key != "continuationCommand") return w["continuation"].string();
+    if (const std::string_view t = w["token"].str(); !t.empty()) return std::string(t);
+    // continuationItemViewModel (2026 playlist pages): one level deeper.
+    return w.path("innertubeCommand", "continuationCommand", "token").string();
+}
+
+std::string findContinuationToken(json::Value v)
+{
     std::string found;
-    void enter(int) {}
-    void leave(int) {}
-    scan::Action what(std::string_view key, int)
-    {
-        if (!found.empty()) return scan::Action::Skip;
-        if (isTokenKey(key)) return scan::Action::Capture;
-        return scan::Action::Descend;
-    }
-    void capture(std::string_view key, std::string_view value, int)
-    {
-        captureToken(key, value, &found);
-    }
-};
-
-std::string findContinuationToken(std::string_view json)
-{
-    TokenFinder f;
-    scan::document(json, f);
-    return std::string(f.found);
+    v.find({"continuationCommand", "nextContinuationData", "reloadContinuationData"},
+           [&](std::string_view key, json::Value w) {
+        found = tokenOf(key, w);
+        return found.empty() ? json::Visit::Skip : json::Visit::Stop;
+    });
+    return found;
 }
 
-std::string findContinuationTokenUnder(std::string_view json, const char *rootKey)
+std::string findContinuationTokenUnder(json::Value v, std::string_view key)
 {
-    const std::string_view sub = scan::topLevelValue(json, rootKey);
-    if (sub.empty()) return std::string();
-    return findContinuationToken(sub);
+    return findContinuationToken(v[key]);
 }
+
 }

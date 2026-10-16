@@ -1,90 +1,44 @@
+// Video lists: every renderer that is a video, anywhere in a browse / search / next
+// answer, plus the first continuation token in document order (rendererparser.h).
+#include "continuation.h"
 #include "rendererinternal.h"
 
 namespace yt {
 
-using namespace gj;
-
-std::string parseText(std::string_view field)
+std::string parseText(Value field)
 {
-    Text t{};
-    readJson(t, field);
-    return str(textOf(t));
+    return textOf(field);
 }
 
-struct VideoCollector : CollectorBase {
-    std::vector<VideoItem> *out;
-    scan::Action what(std::string_view key, int)
-    {
-        if (consumed()) return scan::Action::Skip;
-        if (key == "lockupViewModel" || key == "tileRenderer" || isVideoKind(key)) {
-            consume();
-            return scan::Action::Capture;
-        }
-        return scan::Action::Descend;
-    }
-    void capture(std::string_view key, std::string_view value, int)
-    {
-        // lockupViewModel is a self-contained leaf (no nested video renderers); only
-        // the VIDEO content type becomes a Video (playlist/other lockups skipped).
-        if (key == "lockupViewModel") {
-            rj::Lockup lm{};
-            readJson(lm, value);
-            if (lm.contentType && *lm.contentType == "LOCKUP_CONTENT_TYPE_VIDEO")
-                out->push_back(fromLockupVideo(lm));
-        }
-        // tileRenderer is likewise a self-contained leaf (TVHTML5 feeds).
-        else if (key == "tileRenderer") {
-            rj::Tile t{};
-            readJson(t, value);
-            if (t.contentType && *t.contentType == "TILE_CONTENT_TYPE_VIDEO")
-                out->push_back(fromTile(t));
-        }
-        else {
-            rj::VideoR r{};
-            readJson(r, value);
-            out->push_back(fromVideoRenderer(r));
-        }
-    }
-};
-
-std::vector<VideoItem> parseVideoList(std::string_view response, std::string *nextToken)
+std::vector<VideoItem> parseVideoList(Value response, std::string *nextToken)
 {
     std::vector<VideoItem> out;
-    if (nextToken) {
-        WithToken<VideoCollector> w;
-        w.inner.out = &out;
-        scan::document(response, w);
-        *nextToken = std::string(w.token);
-    } else {
-        VideoCollector c;
-        c.out = &out;
-        scan::document(response, c);
-    }
+    std::string token;
+    response.find({"lockupViewModel", "tileRenderer", "videoRenderer", "compactVideoRenderer", "gridVideoRenderer",
+                   "playlistVideoRenderer", "continuationCommand", "nextContinuationData", "reloadContinuationData"},
+                  [&](std::string_view key, Value v) {
+        if (isTokenKey(key)) {
+            if (token.empty()) token = tokenOf(key, v);
+            return Visit::Skip;
+        }
+        // lockupViewModel and tileRenderer are self-contained leaves; only the VIDEO
+        // content type becomes a video (playlist/channel ones are skipped).
+        if (key == "lockupViewModel") {
+            if (v["contentType"].str() == "LOCKUP_CONTENT_TYPE_VIDEO") out.push_back(fromLockupVideo(v));
+        } else if (key == "tileRenderer") {
+            if (v["contentType"].str() == "TILE_CONTENT_TYPE_VIDEO") out.push_back(fromTile(v));
+        } else {
+            out.push_back(fromVideoRenderer(v));
+        }
+        return Visit::SkipRest;
+    });
+    if (nextToken) *nextToken = token;
     return out;
 }
 
-// ---------------------------------------------------------------------------
 // Direct single-renderer entry points (tests + callers holding the inner object).
-// ---------------------------------------------------------------------------
-VideoItem parseVideoRenderer(std::string_view r)
-{
-    rj::VideoR s{};
-    readJson(s, r);
-    return fromVideoRenderer(s);
-}
-
-VideoItem parseLockupViewModel(std::string_view lm)
-{
-    rj::Lockup s{};
-    readJson(s, lm);
-    return fromLockupVideo(s);
-}
-
-VideoItem parseTileRenderer(std::string_view t)
-{
-    rj::Tile s{};
-    readJson(s, t);
-    return fromTile(s);
-}
+VideoItem parseVideoRenderer(Value r) { return fromVideoRenderer(r); }
+VideoItem parseLockupViewModel(Value lm) { return fromLockupVideo(lm); }
+VideoItem parseTileRenderer(Value t) { return fromTile(t); }
 
 }

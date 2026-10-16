@@ -1,4 +1,4 @@
-// The Glaze-backed InnerTube parsers on std types (port of MeeTube's
+// The InnerTube parsers (over yt::json) on std types (port of MeeTube's
 // tst_meetube_parsers: same fixtures, same expected values; CT:: field renames per
 // include/yt/types.h).
 #include <doctest/doctest.h>
@@ -61,24 +61,24 @@ TEST_CASE("flexIntParses") {
     CHECK(gj::flexInt(J("3.9")) == 3);
 }
 TEST_CASE("parseTextBehavior") {
-    CHECK(parseText(payloads::kSimpleText) == "hi");
-    CHECK(parseText(payloads::kRunsText) == "ab");
-    CHECK(parseText(payloads::kBareString).empty());
-    CHECK(parseText("5").empty());
-    CHECK(parseText("{}").empty());
+    CHECK(parseText(J(payloads::kSimpleText)) == "hi");
+    CHECK(parseText(J(payloads::kRunsText)) == "ab");
+    CHECK(parseText(J(payloads::kBareString)).empty());
+    CHECK(parseText(J("5")).empty());
+    CHECK(parseText(J("{}")).empty());
 }
 TEST_CASE("continuationFound") {
-    CHECK(findContinuationToken(std::string(payloads::kContinuationModern)) == "CTOKEN123");
+    CHECK(findContinuationToken(J(std::string(payloads::kContinuationModern))) == "CTOKEN123");
 }
 TEST_CASE("continuationLegacy") {
-    CHECK(findContinuationToken(std::string(payloads::kContinuationLegacy)) == "LEG456");
+    CHECK(findContinuationToken(J(std::string(payloads::kContinuationLegacy))) == "LEG456");
 }
 TEST_CASE("videoRendererAvatar") {
-    VideoItem v = parseVideoRenderer(std::string(payloads::kVideoRendererAvatar));
+    VideoItem v = parseVideoRenderer(J(std::string(payloads::kVideoRendererAvatar)));
     CHECK(v.channel.avatarUrl == "https://big/a.jpg");
 }
 TEST_CASE("playlistRendererParses") {
-    Playlist p = parsePlaylistRenderer(std::string(payloads::kPlaylistRenderer));
+    Playlist p = parsePlaylistRenderer(J(std::string(payloads::kPlaylistRenderer)));
     CHECK(p.id == "PL123");
     CHECK(p.title == "My List");
     CHECK(p.videoCount == 42);
@@ -86,39 +86,39 @@ TEST_CASE("playlistRendererParses") {
 }
 TEST_CASE("playlistVideosCollected") {
     std::string next;
-    std::vector<VideoItem> v = parseVideoList(std::string(payloads::kPlaylistVideos), &next);
+    std::vector<VideoItem> v = parseVideoList(J(std::string(payloads::kPlaylistVideos)), &next);
     REQUIRE(v.size() == 2);
     CHECK(v[0].id == "v1");
 }
 TEST_CASE("tilePlaylistParses") {
     std::string token;
-    std::vector<Playlist> ps = parsePlaylistList(std::string(payloads::kTilePlaylistLibrary), &token);
+    std::vector<Playlist> ps = parsePlaylistList(J(std::string(payloads::kTilePlaylistLibrary)), &token);
     REQUIRE(ps.size() == 1);
     CHECK(ps[0].id == "PLtest123");
     CHECK(ps[0].title == "My Mix");
     CHECK(ps[0].videoCount == 1709);
 }
 TEST_CASE("channelHeaderParses") {
-    Channel u = parseChannel(std::string(payloads::kC4Header));
+    Channel u = parseChannel(J(std::string(payloads::kC4Header)));
     CHECK(u.id == "UCxyz");
     CHECK(u.name == "Cool Channel");
     CHECK(u.subscriberText == "1.2M subscribers");
     CHECK(u.avatarUrl == "https://a/l.jpg");
-    Channel u2 = parseChannel(std::string(payloads::kC4HeaderBanner));
+    Channel u2 = parseChannel(J(std::string(payloads::kC4HeaderBanner)));
     CHECK(u2.bannerUrl == "http://b/c4big.jpg");
 }
 TEST_CASE("channel_extracts_subscribed") {
-    Channel u = parseChannel(std::string_view(payloads::kChannelSubscribed));
+    Channel u = parseChannel(J(std::string_view(payloads::kChannelSubscribed)));
     CHECK(u.subscribed);
 }
 TEST_CASE("channelSubscribedFlagParses") {
-    CHECK(parseChannelSubscribed(std::string_view(payloads::kChannelSubscribed)));
-    CHECK_FALSE(parseChannelSubscribed(std::string_view(payloads::kC4Header)));
+    CHECK(parseChannelSubscribed(J(std::string_view(payloads::kChannelSubscribed))));
+    CHECK_FALSE(parseChannelSubscribed(J(std::string_view(payloads::kC4Header))));
 }
 TEST_CASE("channelPageHeaderParses") {
     const std::string resp = loadFixtureRaw("channel_pageheader.json");
     REQUIRE(!resp.empty());
-    Channel u = parseChannel(resp);
+    Channel u = parseChannel(J(resp));
     CHECK(u.name == "Google for Developers");
     CHECK(u.subscriberText == "2.66M subscribers");
     CHECK(u.avatarUrl == "http://a/s160.jpg");
@@ -130,7 +130,7 @@ TEST_CASE("channelPageHeaderParses") {
 TEST_CASE("watchPageParses") {
     const std::string next = loadFixtureRaw("watch_next.json");
     Video primary;
-    parseWatchPage(next, &primary);
+    parseWatchPage(J(next), &primary);
     CHECK(primary.title == "The Title");
     CHECK(primary.description == "Hello description");
     CHECK(primary.channel.name == "Creator");
@@ -143,19 +143,19 @@ TEST_CASE("watchPageParses") {
 }
 TEST_CASE("watch_extracts_subscribe_state") {
     Video primary;
-    parseWatchPage(std::string_view(payloads::kNextSubscribedTv), &primary);
+    parseWatchPage(J(std::string_view(payloads::kNextSubscribedTv)), &primary);
     CHECK(primary.channel.subscribed);
     CHECK(primary.channel.id == "UCowner");
 }
 TEST_CASE("watch_tv_like_count_and_state") {
     Video primary;
-    parseWatchPage(std::string_view(payloads::kNextTvLikeState), &primary);
+    parseWatchPage(J(std::string_view(payloads::kNextTvLikeState)), &primary);
     CHECK(primary.likeText == "8.8K");
     CHECK(primary.myRating == Rating::Like);
 }
 TEST_CASE("watch_extracts_like_state") {
     Video primary;
-    parseWatchPage(std::string_view(payloads::kNextLikedWeb), &primary);
+    parseWatchPage(J(std::string_view(payloads::kNextLikedWeb)), &primary);
     CHECK(primary.myRating == Rating::Like);
     REQUIRE(primary.likeCount.has_value());
     CHECK(*primary.likeCount == 1234);
@@ -165,18 +165,18 @@ TEST_CASE("recursionDepthGuarded") {
     for (int i = 0; i < 500; ++i) deep += "{\"child\":";
     deep += "{\"continuationCommand\":{\"token\":\"DEEP\"}}";
     for (int i = 0; i < 500; ++i) deep += "}";
-    (void)findContinuationToken(deep);
+    (void)findContinuationToken(J(deep));
     std::string next;
-    std::vector<VideoItem> v = parseVideoList(deep, &next);
+    std::vector<VideoItem> v = parseVideoList(J(deep), &next);
     CHECK(v.empty());
 }
 TEST_CASE("continuationAbsent") {
-    CHECK(findContinuationToken(std::string(payloads::kContinuationAbsent)).empty());
+    CHECK(findContinuationToken(J(std::string(payloads::kContinuationAbsent))).empty());
 }
 TEST_CASE("videoList") {
     const std::string resp = loadFixtureRaw("search_videos.json");
     std::string token;
-    std::vector<VideoItem> v = parseVideoList(resp, &token);
+    std::vector<VideoItem> v = parseVideoList(J(resp), &token);
     REQUIRE(v.size() == 2);
     CHECK(v[0].id == "aaa11111111");
     CHECK(v[0].title == "First Video");
@@ -192,7 +192,7 @@ TEST_CASE("videoListBrowseFeed") {
     const std::string resp = loadFixtureRaw("browse_feed.json");
     REQUIRE(!resp.empty());
     std::string token;
-    std::vector<VideoItem> v = parseVideoList(resp, &token);
+    std::vector<VideoItem> v = parseVideoList(J(resp), &token);
     REQUIRE(v.size() == 2);
     CHECK(v[0].id == "ccc33333333");
     CHECK(v[0].title == "Feed One");
@@ -203,7 +203,7 @@ TEST_CASE("lockupRelatedParses") {
     const std::string resp = loadFixtureRaw("next_lockup.json");
     REQUIRE(!resp.empty());
     std::string token;
-    std::vector<VideoItem> v = parseVideoList(resp, &token);
+    std::vector<VideoItem> v = parseVideoList(J(resp), &token);
     REQUIRE(v.size() == 2);
     CHECK(v[0].id == "Zi_XLOBDo_Y");
     CHECK(v[0].title == "Michael Jackson - Billie Jean (Official Video)");
@@ -221,7 +221,7 @@ TEST_CASE("lockupRelatedParses") {
 TEST_CASE("a channel tab lockup has no channel row") {
     const std::string resp = loadFixtureRaw("channel_videos_lockup.json");
     std::string token;
-    std::vector<VideoItem> v = parseVideoList(resp, &token);
+    std::vector<VideoItem> v = parseVideoList(J(resp), &token);
     REQUIRE(v.size() == 1);
     CHECK(v[0].id == "5b3n-u_0QAI");
     CHECK(v[0].channel.name.empty());
@@ -231,7 +231,7 @@ TEST_CASE("a channel tab lockup has no channel row") {
 TEST_CASE("comments") {
     const std::string p = loadFixtureRaw("comments_page.json");
     std::string token;
-    std::vector<CommentThread> c = parseComments(p, &token);
+    std::vector<CommentThread> c = parseComments(J(p), &token);
     REQUIRE(c.size() == 2);
     CHECK(c[0].comment.author.name == "Alice");
     CHECK(c[0].comment.text == "Nice video");
@@ -242,7 +242,7 @@ TEST_CASE("parsesPlaylistLockups") {
     const std::string j = loadFixtureRaw("browse_playlists_lockup.json");
     REQUIRE(!j.empty());
     std::string token;
-    const std::vector<Playlist> p = parsePlaylistList(j, &token);
+    const std::vector<Playlist> p = parsePlaylistList(J(j), &token);
     REQUIRE(p.size() == 1);
     CHECK(p[0].id == "PLOU2XLYxmsIJ78oALT6XEKLHNFEggOI75");
     CHECK(p[0].title == "GDG Inspiring Stories");
@@ -252,19 +252,19 @@ TEST_CASE("parsesPlaylistLockups") {
 TEST_CASE("parsesAccountsList") {
     const std::string j = loadFixtureRaw("accounts_list.json");
     REQUIRE(!j.empty());
-    const AccountInfo a = parseAccountsList(j);
+    const AccountInfo a = parseAccountsList(J(j));
     CHECK(a.name == "Ivan Petrov");
     CHECK(a.handle == "@ivanpetrov");
     CHECK(a.avatarUrl == "https://yt3.example/big.jpg");
     CHECK(a.channelId == "UCabc123def");
-    CHECK(parseAccountsList("{}").name.empty());
-    CHECK(parseAccountsList("not json at all").name.empty());
+    CHECK(parseAccountsList(J("{}")).name.empty());
+    CHECK(parseAccountsList(J("not json at all")).name.empty());
 }
 TEST_CASE("parsesTileRenderers") {
     const std::string j = loadFixtureRaw("tiles_history.json");
     REQUIRE(!j.empty());
     std::string token;
-    const std::vector<VideoItem> v = parseVideoList(j, &token);
+    const std::vector<VideoItem> v = parseVideoList(J(j), &token);
     REQUIRE(v.size() == 2);
     CHECK(v[0].id == "u7OQ7kKBEHs");
     CHECK(v[0].title == "What if You Encounter an ENEMY");
@@ -287,7 +287,7 @@ TEST_CASE("accountsListNestedItemsDepthBounded") {
     for (int i = 0; i < n; ++i) deep += "{\"accountItem\":";
     deep += "{}";
     for (int i = 0; i < n; ++i) deep += "}";
-    const AccountInfo a = parseAccountsList(deep);   // must return, not overflow the stack
+    const AccountInfo a = parseAccountsList(J(deep));   // must return, not overflow the stack
     CHECK(a.name.empty());
 }
 
@@ -525,7 +525,7 @@ TEST_CASE("a comment carries its id, author channel, likes, replies and mine") {
         "\"isCurrentUser\":true},"
         "\"toolbar\":{\"likeCountNotliked\":\"291K\",\"replyCount\":\"675\"}}}}]}}}";
     std::string token;
-    const std::vector<CommentThread> c = parseComments(page, &token);
+    const std::vector<CommentThread> c = parseComments(J(page), &token);
     REQUIRE(c.size() == 1);
     CHECK(c[0].comment.id == "Ugxzbv");
     CHECK(c[0].comment.text == "Hi");
@@ -551,7 +551,7 @@ TEST_CASE("a watch page: date, exact views and the related list's continuation")
         "{\"continuationItemRenderer\":{\"continuationEndpoint\":{\"continuationCommand\":{\"token\":\"RELATED\"}}}}]}}}}}";
     Video v;
     std::string related;
-    parseWatchPage(next, &v, &related);
+    parseWatchPage(J(next), &v, &related);
     CHECK(v.title == "T");
     CHECK(v.publishedText == "Oct 25, 2009");
     CHECK(v.viewText == "1,234,567 views");
@@ -568,14 +568,14 @@ TEST_CASE("a token nested in innertubeCommand is found") {
         "{\"contents\":[{\"lockupViewModel\":{\"contentId\":\"aaa11111111\",\"contentType\":\"LOCKUP_CONTENT_TYPE_VIDEO\"}},"
         "{\"continuationItemViewModel\":{\"continuationCommand\":{\"innertubeCommand\":{"
         "\"continuationCommand\":{\"token\":\"NESTED\"}}}}}]}";
-    CHECK(findContinuationToken(page) == "NESTED");
+    CHECK(findContinuationToken(J(page)) == "NESTED");
     std::string token;
-    const std::vector<VideoItem> v = parseVideoList(page, &token);
+    const std::vector<VideoItem> v = parseVideoList(J(page), &token);
     CHECK(v.size() == 1);
     CHECK(token == "NESTED");
 }
 TEST_CASE("a playlist page's header comes from its sidebar") {
-    const Playlist p = parsePlaylistPage(loadFixtureRaw("playlist_page.json"));
+    const Playlist p = parsePlaylistPage(J(loadFixtureRaw("playlist_page.json")));
     CHECK(p.title == "Popular Music Videos");
     CHECK(p.description == "The hits.");
     CHECK(p.videoCount == 182);
@@ -598,7 +598,7 @@ TEST_CASE("a search lockup's single row still starts with the channel") {
         "\"metadataRows\":[{\"metadataParts\":[{\"text\":{\"content\":\"Rick Astley\"}},"
         "{\"text\":{\"content\":\"207M views\"}},{\"text\":{\"content\":\"16 years ago\"}}]}]}}}}}}]}";
     std::string token;
-    const std::vector<VideoItem> v = parseVideoList(page, &token);
+    const std::vector<VideoItem> v = parseVideoList(J(page), &token);
     REQUIRE(v.size() == 2);
     CHECK(v[0].channel.name == "Rick Astley");
     CHECK(v[0].channel.id == "UCuAXFkgsw1L7xaCfnd5JJOw");
@@ -606,4 +606,17 @@ TEST_CASE("a search lockup's single row still starts with the channel") {
     CHECK(v[0].publishedText == "16 years ago");
     CHECK(v[1].channel.name == "Rick Astley");
     CHECK(v[1].viewText == "207M views");
+}
+
+// Signed in, the comments page's create box sits under onResponseReceivedEndpoints; the old
+// scanner took that subtree whole (for the page token) and never found createCommentParams.
+TEST_CASE("createCommentParamsUnderResponseEndpoints") {
+    std::string tok, params;
+    parseComments(J(R"({"onResponseReceivedEndpoints":[{"reloadContinuationItemsCommand":{"continuationItems":[
+        {"commentsHeaderRenderer":{"createRenderer":{"commentSimpleboxRenderer":{"submitButton":{"buttonRenderer":
+            {"serviceEndpoint":{"createCommentEndpoint":{"createCommentParams":"CP"}}}}}}}},
+        {"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"NEXT"}}}}]}}]})"),
+        &tok, &params);
+    CHECK(params == "CP");
+    CHECK(tok == "NEXT");
 }
