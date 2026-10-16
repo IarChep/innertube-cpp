@@ -12,8 +12,6 @@ endif()
 option(INNERTUBE_BUILD_TESTS "Build the innertube test suites" ${_it_top})
 option(INNERTUBE_BUILD_EXAMPLES "Build the examples (and their conformance tests)" ${_it_top})
 option(INNERTUBE_INSTALL "Generate install rules (find_package config + pkg-config file)" ${_it_top})
-set(INNERTUBE_GLAZE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glaze" CACHE PATH
-    "Glaze source root (contains include/glaze)")
 
 add_library(innertube STATIC
     src/version.cpp
@@ -45,20 +43,12 @@ add_library(innertube STATIC
     src/groups.cpp
     src/auth.cpp)
 add_library(innertube::innertube ALIAS innertube)
-# The impl needs C++23 (Glaze v7); consumers only see the C++17 floor (the PUBLIC feature).
+# The impl is C++23; consumers only see the C++17 floor (the PUBLIC feature).
 set_target_properties(innertube PROPERTIES POSITION_INDEPENDENT_CODE ON CXX_STANDARD 23)
 target_compile_features(innertube PUBLIC cxx_std_17)
 target_include_directories(innertube
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
-
-# Glaze: PRIVATE, header-only. Reuse a consumer's `glaze` target if present (build-only:
-# an installed innertube needs nothing of it).
-if(TARGET glaze)
-    target_link_libraries(innertube PRIVATE $<BUILD_INTERFACE:glaze>)
-else()
-    target_include_directories(innertube SYSTEM PRIVATE ${INNERTUBE_GLAZE_DIR}/include)
-endif()
 
 # HTTP backend (include/yt/transport.h, docs/backends.md):
 #   curl    backends/curl — libcurl multi on the engine thread (default). A consumer

@@ -11,9 +11,10 @@ files are the reference style; copy them, not your habits.
 
 libinnertube (`innertube-cpp`) is a Qt-free C++ client for YouTube's private
 InnerTube API, split out of MeeTube (a YouTube client for the Nokia N9 / MeeGo
-Harmattan). It must stay fast and lean on a 1 GB-RAM ARM phone: the parsers are a
-single-pass scanner plus partial Glaze reads, not a DOM; a malloc per JSON node is a
-regression. Design history lives in `docs/specs/` and `docs/plans/`.
+Harmattan). It must stay fast and lean on a 1 GB-RAM ARM phone: every JSON reply is
+indexed once by `yt::json` (one validating pass, 4 bytes per token) and read lazily by
+path, not a DOM; a malloc per JSON node is a regression. Design history lives in
+`docs/specs/` and `docs/plans/`.
 
 ## 2. Build, test, definition of done
 
@@ -48,7 +49,7 @@ restore it), and the docs/comments that describe the touched contract are update
 ## 3. Layout and layering
 
 ```
-include/yt/        public API — C++17, std types only, no Glaze, no curl, no Qt
+include/yt/        public API — C++17, std types only, no curl, no Qt
 src/               the implementation — C++23, private
   client.cpp       yt::Client + Engine (boot, delivery, Job, future forms of more)
   groups.cpp       the resource groups of yt::Client (thin wrappers over core/chains)
@@ -59,9 +60,8 @@ src/               the implementation — C++23, private
   core/            request chains over the IHttp seam, JobToken, logging, pct-encoding
   net/             Loop (tasks + timers), HttpClient (transport policy), URL helpers
   innertube/       client identities, context/header builder, POST body builders, player-JS scans (playerjs)
-  json/            Glaze read options, single-pass scanner, token scan, json3 captions
-    shapes/        every JSON shape the library reads, one header per API family (§7)
-  parsers/         response → yt:: value types (Glaze partial views + scanner visitors)
+  json/            yt::json (index, views, find, writer), YouTube helpers (ytjson.h), json3
+  parsers/         response → yt:: value types (paths over json::Value)
 backends/curl/     the default HttpTransport (the only code that includes <curl/curl.h>)
 backends/none/     no-backend build
 conformance/       backend conformance suite + loopback HTTP server (no test framework)
@@ -92,9 +92,8 @@ new directory or file for one function.
 - Public headers compile as C++17 (`tst_types` builds at C++17 to prove it). No
   `std::expected`, `<format>`, `std::ranges`, designated initializers or other C++20+
   in `include/`.
-- Glaze is a PRIVATE, header-only dependency; it never appears in a public header.
-- No new third-party dependency. Use the standard library, Glaze or what is
-  already in `src/`.
+- No third-party dependency beyond libcurl (default backend) and doctest (tests). Use
+  the standard library or what is already in `src/` — JSON is `yt::json`.
 - Language standards are set through `CXX_STANDARD` target properties, never raw
   `-std=` flags (MSVC). New targets: `set_target_properties(x PROPERTIES CXX_STANDARD 23)`.
 
@@ -119,14 +118,14 @@ new directory or file for one function.
 - URLs are byte-exact: never decode or re-encode a server-issued URL.
 - Credentials (`Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization`,
   refresh tokens) never reach a log. Files holding tokens are written owner-only.
-- Recursive JSON walks are bounded by `gj::kScanMaxDepth`, and the bound is absolute
-  across re-scans (see `AccountItemCollector`).
+- A JSON document nested deeper than `json::kMaxDepth` is refused whole, and every walk
+  over one (`Value::find`) is iterative: no recursion over untrusted input.
 
 **Error model**
 - No exceptions in the library, except `Client`'s constructor (no transport).
   Asynchronous outcomes are `Result<T>` with an `ErrorCode`; keep `httpStatus`.
 - Parsers never fail: malformed or unexpected JSON degrades to "fields absent" /
-  an empty list (`gj::readJson` ignores errors on purpose). Transport and envelope
+  an empty list (an absent `json::Value` reads as ""/0/false). Transport and envelope
   errors are decided once, in `HttpClient`, never in a parser.
 - A non-2xx reply, a truncated body or an `"error"` envelope is a failed `Reply`,
   never cached and never parsed as an empty success.
@@ -163,10 +162,9 @@ void HttpClient::onTimeout(const std::shared_ptr<Exchange> &ex)
 | types, structs, enums | `PascalCase` | `HttpClient`, `TokenGrant`, `ErrorCode` |
 | functions, methods, locals, struct fields | `camelCase` | `fetchPlayer`, `bearerExpiry` |
 | private members of classes | `m_` + camelCase | `m_loop`, `m_inflightByKey` |
-| constants | `k` + PascalCase | `kMaxCacheEntries`, `kScanMaxDepth` |
+| constants | `k` + PascalCase | `kMaxCacheEntries`, `kMaxDepth` |
 | enumerators | `PascalCase`, `enum class` | `ErrorCode::InvalidResponse` |
 | macros (rare) | `UPPER_CASE` | `YTLOG` |
-| Glaze shapes | field name == JSON key, even snake_case | `access_token`, `simpleText` |
 | test files | `tst_<area>.cpp` | `tst_http.cpp` |
 
 **Idioms in use — reuse them, don't invent alternatives**
@@ -179,10 +177,11 @@ void HttpClient::onTimeout(const std::shared_ptr<Exchange> &ex)
   only where the engine provably outlives the loop.
 - Numeric conversions use a C-style cast with a space: `(int) kind`, `(size_t)(e - p)`.
   `nullptr` for pointers in new code.
-- JSON shapes live only in `src/json/shapes/`, never in a parser or chain `.cpp`.
-- Optional JSON fields are `std::optional<…>`; flexible numbers are `gj::FlexInt` →
-  `gj::toInt64`; text is `gj::Text` → `gj::textOf`. Read subtrees with `gj::readJson`,
-  whole `std::string` bodies with `gj::readJsonDoc`.
+- JSON is read from a `Reply`'s `json()` (the transport indexed it once) by path:
+  `r.path("metadata", "lockupMetadataViewModel", "title", "content").str()` — absence
+  propagates, so a path needs no checks between steps. Text is `gj::textOf`, thumbnails
+  `gj::lastThumbUrl`/`lastSourceUrl`, numbers-or-strings `gj::flexInt`, "anywhere below"
+  `gj::first` or `Value::find`. JSON is written with `json::Writer`.
 - Diagnostics only through `YTLOG(log, "category") << a << b;` (zero cost when off).
 - State that changes identity (sign-in/out, locale) goes through `IHttp::clearCache()`
   and the generation counters (`authGen`, `bearerGen`, `m_gen`); never mutate
@@ -225,30 +224,14 @@ Comment density is moderate and purposeful. Match it.
    parsed result, error mapping); add the call to "every group method reaches its chain"
    in `tst_client.cpp`.
 
-**New parser / JSON shape**: namespace-scope aggregates of `std::optional` fields
-named after the JSON keys (partial views; unknown keys skipped); a scanner visitor
-(`what/capture/enter/leave`) when the location is not fixed. Fixture-based test in
-`tst_parsers.cpp` from a real, trimmed payload under `tests/fixtures/`.
-
-Shapes go into the `src/json/shapes/` header of their API family; the namespace says
-which family a shape belongs to. Reuse a `gj` piece before declaring a new one (a
-`{thumbnails:[{url}]}` is `gj::ThumbSet`, a `{runs|simpleText}` is `gj::Text`).
-
-| Header | Namespace | Holds |
-|---|---|---|
-| `common.h` | `gj` | text runs, thumbnails, view-model sources, `{content}`, continuation tokens, the error envelope |
-| `renderers.h` | `rj` | list items (video/lockup/tile/playlist/channel renderers) + shared navigation, image, subscribe pieces |
-| `channel.h` | `rj` | channel headers and metadata |
-| `comments.h` | `rj` | `commentEntityPayload` |
-| `watch.h` | `rj` | `/next` primary info, like/dislike toggles, owner, like-status entity |
-| `account.h` | `rj` | `accounts_list` items, the `mdx/handoff` sign-in QR |
-| `playlist.h` | `rj` | the playlist page (`VL<id>` browse) sidebar: title, stats, owner |
-| `player.h` | `pj` | the `/player` answer |
-| `timedtext.h` | `tj` | json3 captions |
-| `oauth.h`, `ryd.h` | `oj` | services outside InnerTube: Google OAuth, Return YouTube Dislike |
-
-Request bodies are written, not read: their shapes stay beside their builders
-(`innertube/bodies.cpp`, `innertube/contextbuilder.cpp`).
+**New parser**: a function from a `json::Value` (the response root, or one renderer) to a
+`yt::` value type, the paths written out where they are read (`parsers/rendererinternal.h`
+holds the converters shared by several lists). Renderers whose location is not fixed are
+found with `Value::find` (`Visit::SkipRest` for a leaf renderer, the walkers' old early
+`return`). Reuse a `gj` helper before writing a new one (`textOf`, `lastThumbUrl`,
+`flexInt`, `first`). Fixture-based test in `tst_parsers.cpp` from a real, trimmed payload
+under `tests/fixtures/`; fixtures must be well-formed JSON (`json::Doc` refuses anything
+else, like the transport).
 
 **Transport / backend change**: the policy goes into `net::HttpClient`, never into a
 backend. A new `TransportConfig` hint must be honoured by both curl backends
@@ -296,7 +279,7 @@ TEST_CASE("non2xxWithoutErrorMemberFailsAndIsNotCached") {
 ## 10. Commits
 
 Commit only when the human asks. One logical change per commit; never commit build
-trees, `compile_commands.json` or `yt-cli-state.json`.
+trees, `compile_commands.json` or `yt-cli-state.txt`.
 
 ```
 <scope>: <what, lowercase, no trailing period>

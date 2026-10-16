@@ -5,8 +5,8 @@ private API the YouTube apps and website use.
 
 The library was extracted from [MeeTube](https://github.com/IarChep/MeeTube), a YouTube client
 for the Nokia N9 (MeeGo Harmattan), and is built to run well on that phone: 1 GB of
-RAM, an ARM CPU, no DOM. Responses are parsed in a single pass with
-[Glaze](https://github.com/stephenberry/glaze), and nothing ties it to the N9. The
+RAM, an ARM CPU, no DOM. Every response is indexed in one validating pass (4 bytes per
+token, no copies) and read lazily by path, and nothing ties it to the N9. The
 public API is plain C++17 with `std` types only, so it fits any desktop, mobile or
 embedded C++ project.
 
@@ -50,7 +50,7 @@ embedded C++ project.
 ## Building
 
 You need CMake ≥ 3.20, a C++23 compiler for the library itself (recent GCC or Clang),
-and libcurl ≥ 7.68 for the default backend. Glaze and doctest are git submodules.
+and libcurl ≥ 7.68 for the default backend. doctest is a git submodule.
 
 ```sh
 git clone --recursive https://github.com/IarChep/innertube-cpp.git
@@ -67,7 +67,6 @@ ctest --test-dir build
 | `INNERTUBE_HTTP_BACKEND_LIBS` | — | extra link libraries for a custom backend |
 | `INNERTUBE_BUILD_TESTS` | top-level only | the doctest suites |
 | `INNERTUBE_BUILD_EXAMPLES` | top-level only | `yt-cli`, `yt-watch`, `yt-channel`, `yt-suggest` |
-| `INNERTUBE_GLAZE_DIR` | `third_party/glaze` | use another Glaze checkout (a `glaze` target is reused if present) |
 | `INNERTUBE_INSTALL` | top-level only | install rules: headers, `libinnertube.a`, the CMake package and `innertube.pc` |
 
 ## Using it in your project
@@ -83,7 +82,7 @@ target_link_libraries(myapp PRIVATE innertube::innertube)
 ```
 
 A `git submodule` + `add_subdirectory(innertube-cpp)` setup works the same way. Your
-code only needs C++17, because Glaze and libcurl stay private to the library.
+code only needs C++17, because libcurl stays private to the library.
 
 Or install it and find it like any other package:
 

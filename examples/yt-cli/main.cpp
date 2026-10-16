@@ -10,9 +10,8 @@
 //   yt-cli playlist <link>         e.g. PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI
 //   yt-cli comments <link>
 //   yt-cli raw <endpoint> [json]   e.g. raw browse '{"browseId":"FEwhat_to_watch"}' (unstable)
-//   yt-cli signin                  device-code login; state saved to ./yt-cli-state.json
+//   yt-cli signin                  device-code login; state saved to ./yt-cli-state.txt
 #include <yt/yt.h>
-#include <glaze/glaze.hpp>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -20,23 +19,26 @@
 #include <cstdlib>
 #include <fstream>
 #include <future>
-#include <sstream>
 
 namespace {
 
-struct SavedState { std::string hl = "en", gl = "US", visitorData, refreshToken, playerId; int signatureTimestamp = 0; };
-const char *kStateFile = "yt-cli-state.json";
+// One "key=value" per line: the values (tokens, ids, hl/gl) never contain a newline.
+const char *kStateFile = "yt-cli-state.txt";
 
 yt::SessionState load()
 {
     yt::SessionState s;
     std::ifstream f(kStateFile);
-    if (!f) return s;
-    std::stringstream ss; ss << f.rdbuf();
-    SavedState saved;
-    if (!glz::read<glz::opts{.error_on_unknown_keys = false}>(saved, ss.str())) {
-        s.hl = saved.hl; s.gl = saved.gl; s.visitorData = saved.visitorData; s.refreshToken = saved.refreshToken;
-        s.playerId = saved.playerId; s.signatureTimestamp = saved.signatureTimestamp;
+    for (std::string line; std::getline(f, line);) {
+        const size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        const std::string key = line.substr(0, eq), value = line.substr(eq + 1);
+        if (key == "hl") s.hl = value;
+        else if (key == "gl") s.gl = value;
+        else if (key == "visitorData") s.visitorData = value;
+        else if (key == "refreshToken") s.refreshToken = value;
+        else if (key == "playerId") s.playerId = value;
+        else if (key == "signatureTimestamp") s.signatureTimestamp = std::atoi(value.c_str());
     }
     return s;
 }
@@ -45,13 +47,14 @@ yt::SessionState load()
 // renamed so a crash never leaves a half-written state behind.
 void save(const yt::SessionState &s)
 {
-    SavedState out{s.hl, s.gl, s.visitorData, s.refreshToken, s.playerId, s.signatureTimestamp};
-    const std::string json = glz::write_json(out).value_or("{}");
+    const std::string text = "hl=" + s.hl + "\ngl=" + s.gl + "\nvisitorData=" + s.visitorData + "\nrefreshToken="
+                           + s.refreshToken + "\nplayerId=" + s.playerId + "\nsignatureTimestamp="
+                           + std::to_string(s.signatureTimestamp) + "\n";
     const std::string tmp = std::string(kStateFile) + ".tmp";
     const int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
     if (fd < 0) return;
     ::fchmod(fd, 0600);                              // also when the file already existed
-    const bool ok = ::write(fd, json.data(), json.size()) == (ssize_t) json.size();
+    const bool ok = ::write(fd, text.data(), text.size()) == (ssize_t) text.size();
     ::close(fd);
     if (ok) std::rename(tmp.c_str(), kStateFile); else std::remove(tmp.c_str());
 }
