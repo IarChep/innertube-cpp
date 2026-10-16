@@ -166,3 +166,21 @@ TEST_CASE("sharedBodyOutlivesTheCaller") {
     CHECK((*d)["a"].str() == "kept");
     CHECK_FALSE(Doc(std::shared_ptr<const std::string>()).ok());
 }
+
+TEST_CASE("writer") {
+    Writer w;
+    w.beginObject()
+        .member("s", "a\"b\\c\n\t\x01\x1f\x7f\xD0\xBA")
+        .member("i", (int64_t) INT64_MIN)
+        .member("b", false)
+        .key("arr").beginArray().num(1).str("x").beginObject().endObject().endArray()
+        .key("o").beginObject().member("k", 2).endObject()
+        .key("r").raw("[true]")
+        .endObject();
+    CHECK(w.text() == "{\"s\":\"a\\\"b\\\\c\\n\\t\\u0001\\u001f\x7f\xD0\xBA\",\"i\":-9223372036854775808,"
+                      "\"b\":false,\"arr\":[1,\"x\",{}],\"o\":{\"k\":2},\"r\":[true]}");
+    Doc back(w.text());
+    REQUIRE(back.ok());
+    CHECK(back["s"].str() == "a\"b\\c\n\t\x01\x1f\x7f\xD0\xBA");
+    CHECK(Writer().beginArray().endArray().take() == "[]");
+}

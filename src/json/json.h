@@ -193,6 +193,37 @@ private:
     mutable std::unordered_map<uint32_t, std::string> m_decoded;   // escaped strings, by index
 };
 
+// Compact JSON output (no spaces), for request bodies and saved state. Strings are escaped
+// per RFC 8259 §7 (\" \\ \b \f \n \r \t, other bytes below 0x20 as \u00XX); everything else,
+// UTF-8 included, is written as is. Commas are placed automatically.
+class Writer {
+public:
+    Writer &beginObject() { return open('{'); }
+    Writer &endObject() { return close('}'); }
+    Writer &beginArray() { return open('['); }
+    Writer &endArray() { return close(']'); }
+    Writer &key(std::string_view k);
+    Writer &str(std::string_view s);
+    Writer &num(int64_t n);
+    Writer &boolean(bool b);
+    Writer &raw(std::string_view json);              // a value that is already JSON text
+    // Shorthands for one member.
+    Writer &member(std::string_view k, std::string_view s) { return key(k).str(s); }
+    Writer &member(std::string_view k, const char *s) { return key(k).str(s); }
+    Writer &member(std::string_view k, int64_t n) { return key(k).num(n); }
+    Writer &member(std::string_view k, int n) { return key(k).num(n); }
+    Writer &member(std::string_view k, bool b) { return key(k).boolean(b); }
+    const std::string &text() const { return m_out; }
+    std::string take() { return std::move(m_out); }
+
+private:
+    Writer &open(char c);
+    Writer &close(char c);
+    void comma();
+    std::string m_out;
+    bool m_comma = false;                            // a value was written at this level
+};
+
 // ---- inline accessors (the hot path of every parser) ----------------------------------------
 inline uint32_t Value::word() const { return m_d->m_tape[m_i]; }
 inline char Value::lead() const { return m_d->m_src[word() & detail::kOffMask]; }

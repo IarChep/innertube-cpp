@@ -424,4 +424,88 @@ void Value::find(std::initializer_list<std::string_view> keys,
     }
 }
 
+// ---- Writer ------------------------------------------------------------------------------
+void Writer::comma()
+{
+    if (m_comma) m_out += ',';
+}
+
+Writer &Writer::open(char c)
+{
+    comma();
+    m_out += c;
+    m_comma = false;
+    return *this;
+}
+
+Writer &Writer::close(char c)
+{
+    m_out += c;
+    m_comma = true;
+    return *this;
+}
+
+Writer &Writer::key(std::string_view k)
+{
+    str(k);
+    m_out += ':';
+    m_comma = false;
+    return *this;
+}
+
+Writer &Writer::str(std::string_view s)
+{
+    comma();
+    m_out += '"';
+    for (char ch : s) {
+        const unsigned char u = (unsigned char) ch;
+        switch (ch) {
+        case '"': m_out += "\\\""; break;
+        case '\\': m_out += "\\\\"; break;
+        case '\b': m_out += "\\b"; break;
+        case '\f': m_out += "\\f"; break;
+        case '\n': m_out += "\\n"; break;
+        case '\r': m_out += "\\r"; break;
+        case '\t': m_out += "\\t"; break;
+        default:
+            if (u < 0x20) {
+                static const char kHex[] = "0123456789abcdef";
+                m_out += "\\u00";
+                m_out += kHex[u >> 4];
+                m_out += kHex[u & 15];
+            } else {
+                m_out += ch;
+            }
+        }
+    }
+    m_out += '"';
+    m_comma = true;
+    return *this;
+}
+
+Writer &Writer::num(int64_t n)
+{
+    comma();
+    char buf[24];
+    m_out.append(buf, (size_t)(std::to_chars(buf, buf + sizeof buf, n).ptr - buf));
+    m_comma = true;
+    return *this;
+}
+
+Writer &Writer::boolean(bool b)
+{
+    comma();
+    m_out += b ? "true" : "false";
+    m_comma = true;
+    return *this;
+}
+
+Writer &Writer::raw(std::string_view json)
+{
+    comma();
+    m_out += json;
+    m_comma = true;
+    return *this;
+}
+
 } // namespace yt::json
