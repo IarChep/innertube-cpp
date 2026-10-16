@@ -20,18 +20,22 @@ item lands, note its commit next to it here.
   actionResult STATUS_SUCCEEDED or a returned comment; else the refusal text (T commentAccepted/
   refusalTextIn, Z writeComment).
 - W5 comments of a Short: WEB /next has no comments panel → lib says `disabled`; TV /next carries
-  the token (T watchState). verify anonymously.
+  the token (T watchState). Not reproduced 2026-10-16: anonymous WEB /next of 3e7GJU9m8KY,
+  4z8Hi_uQOkE, 6kSCVqZdhZ0 carried engagement-panel-comments-section; comments().list gave 20
+  each. Re-check signed in (P3).
 - W6 subscribe/unsubscribe omit `params` CgIIAxgA / CgIIAxgB (T, U DefaultSubscribeParams). verify.
 - W7 rate omits server-issued like/dislike/removeLike `params` from TV /next likeEndpoint, and
   writes have no fallback TVHTML5 → MWEB → WEB (T rate, setVideo, playlistSaveStates).
 - W8 signed-out feeds().home(): WEB FEwhat_to_watch answers 200 with no videos (T); U shows a guest
   feed = playlist PL-p0-Yh03xpi2AsCiyuafMeQrMF6czMoL (TubeReplacer mapping), T a search prompt.
 - W9 own playlists use FElibrary; T and U use FEplaylist_aggregation on TV. verify.
-- W10 relevance search sends no params → mixed result kinds; T sends EgIQAQ== (videos). A page of
-  only Shorts yields an empty list (T falls back to the shorts in it).
+- W10 relevance search sends no params → mixed result kinds; T sends EgIQAQ== (videos). Checked
+  2026-10-16: without params 26 mixed items (shortsLockupViewModel shelves); with EgIQAQ== 19–20
+  videoRenderer per page.
 - W11 subscribe state: `subscribeButtonViewModel` carries BOTH templates; the real state is
-  frameworkUpdates…subscriptionStateEntity (T applySubscriptionEntitiesTo). Lib reads the first
-  subscribeButtonRenderer.subscribed — check against a modern fixture.
+  frameworkUpdates…subscriptionStateEntity (T applySubscriptionEntitiesTo). The lib reads the
+  first subscribeButtonRenderer.subscribed of TV answers — as T does for TV, so correct today;
+  becomes a defect only for WEB answers signed with a web session (P1).
 
 ## MISSING — identity, transport
 - M1 web session: host-supplied cookies, SAPISIDHASH = SHA1("ts SAPISID origin"), X-Goog-AuthUser,

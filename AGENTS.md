@@ -357,5 +357,6 @@ is a thin UI over it. Defects found on the way are fixed first.
 - Live checks marked (S) in the design need the owner's signed-in account; record their date
   and result in the phase plan.
 
-**Status:** inventory and design committed (b3447eb); design awaiting owner approval.
-**Next step:** the P0 plan, `docs/plans/2026-10-16-p0-correctness.md`.
+**Status:** design approved by the owner (2026-10-16); P0 plan written,
+`docs/plans/2026-10-16-p0-correctness.md` (10 tasks), awaiting owner review.
+**Next step:** execute the P0 plan task by task once the owner approves it.

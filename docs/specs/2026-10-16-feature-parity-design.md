@@ -62,13 +62,13 @@ the two clients (owner-requested). "verify" = known only from a reference, to be
 | W2 | save/unsave with "LL" goes to `edit_playlist` (LL changes only by like/removelike); a `VL` prefix is not stripped | T, Z | P0 |
 | W3 | `playlists().get` of any non-WL/LL playlist is anonymous WEB: a signed-in user's private playlists fail | T | P0 |
 | W4 | `comments().post` succeeds on any 2xx; YouTube refuses with 200 | T, Z | P0 |
-| W5 | Shorts comments: WEB `/next` has no panel → reported as `disabled` | T | P0 |
+| W5 | Shorts comments: WEB `/next` has no panel → reported as `disabled` (not reproduced 2026-10-16: anonymous WEB `/next` of three Shorts carried the panel, 20 comments each; re-check signed in) | T | P3 |
 | W6 | subscribe/unsubscribe omit `params` `CgIIAxgA` / `CgIIAxgB` (verify) | T, U | P0 |
 | W7 | writes go TVHTML5 only; T falls back TVHTML5 → MWEB → WEB | T | P2 |
 | W8 | signed-out `feeds().home()` is always empty (WEB `FEwhat_to_watch` answers 200 without videos) | T, U | P2 |
 | W9 | own playlists use `FElibrary`; T and U use `FEplaylist_aggregation` (verify) | T, U | P0 |
 | W10 | relevance search sends no params (mixed kinds); a Shorts-only page parses as empty | T | P0 |
-| W11 | subscribe state read from the first `subscribeButtonRenderer`; view models carry both templates, the state is `subscriptionStateEntity` (verify with a fixture) | T | P0 |
+| W11 | subscribe state from the first `subscribeButtonRenderer`: right for TV answers (as T does); WEB view models carry both templates, the state is `subscriptionStateEntity` — read it when WEB is signed (web session) | T | P1 |
 | M1 | web session: cookies + SAPISIDHASH | T, Z | P1 |
 | M2 | account channels: list, select, `onBehalfOfUser`, datasync fallback | T, Z | P1 |
 | M3 | locale ladder (gl → US, then hl → en) | T | P1 |
@@ -272,7 +272,8 @@ defect fix is its own `fix(lib)` commit with a regression test that fails withou
 
 ### P0 — correctness
 
-W1, W2, W3, W4, W5, W6, W9, W10, W11.
+W1, W2, W3, W4, W6, W9, W10, and `yt-cli raw` naming its client (the owner's live checks need a
+signed-in TVHTML5 request).
 
 - W1: full `accountReadMask` {returnOwner, returnBrandAccounts, returnPersonaAccounts,
   returnFamilyChildAccounts: true; returnFamilyMembersAccounts: false} (T `+accountReadMask`).
@@ -282,21 +283,16 @@ W1, W2, W3, W4, W5, W6, W9, W10, W11.
   (fixture needed).
 - W4: success = `actionResult.status == STATUS_SUCCEEDED` or a returned comment; otherwise
   `ErrorCode::Api` with the server's refusal text (T `commentAccepted`, `refusalTextIn`).
-- W5: no panel on a Short → signed in: token from TVHTML5 `/next` (`engagementPanelSectionList`
-  with `comment-item-section` / `engagement-panel-comments-section`); signed out:
-  `Unavailable`, not `disabled`, until P3's reel answer supplies it.
 - W6: subscribe `params` (live-check S).
 - W9: `FEplaylist_aggregation` if the live check (S) confirms `FElibrary` is wrong.
 - W10: relevance search sends `EgIQAQ==`; when a page has no regular videos but Shorts, they
   are returned (T `search:…kind:`).
-- W11: fixture of a modern signed-in channel/watch answer; read
-  `frameworkUpdates.entityBatchUpdate.mutations[].payload.subscriptionStateEntity` first.
 
-Live: W3, W6, W9, W11 (S); W10 anonymous.
+Live: W3, W6, W9 (S); W10 anonymous.
 
 ### P1 — identities
 
-M1, M2, M3, M4.
+M1, M2, M3, M4, W11.
 
 - `src/core/hash`: SHA-1. SAPISIDHASH = `SAPISIDHASH <ts>_<hex(sha1("<ts> <SAPISID> <origin>"))>`
   with `X-Goog-AuthUser: 0`, `Origin`/`X-Origin: https://www.youtube.com`; SAPISID falls back
@@ -308,6 +304,9 @@ M1, M2, M3, M4.
   (T `switchIdentityForm`) and remember it.
 - Locale ladder §4.4 in `HttpClient` (it owns retries), per endpoint.
 - Search routing per §4.1.
+- W11: on WEB answers signed with the web session, the subscribe state is
+  `frameworkUpdates.entityBatchUpdate.mutations[].payload.subscriptionStateEntity`, not the
+  button templates (T `+applySubscriptionEntitiesTo:from:`).
 
 Live: web-session requests signed (S), brand channel switch (S, needs an account with a brand
 channel), locale ladder with `gl=KG` (anonymous).
@@ -353,7 +352,7 @@ feed (anonymous).
 
 ### P3 — content
 
-W5 (anonymous half), M10, M12, M13, M17 (without the token), M19, M24, M28, M30, M31, X2.
+W5 (re-check signed in), M10, M12, M13, M17 (without the token), M19, M24, M28, M30, M31, X2.
 
 - Shorts feed: `reel/reel_item_watch` {inputType REEL_WATCH_INPUT_TYPE_SEEDLESS, params
   `CA8%3D`, disablePlayerResponse:true}, then `reel/reel_watch_sequence` {sequenceParams};
