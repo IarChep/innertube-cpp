@@ -59,3 +59,14 @@ if(INNERTUBE_INSTALL)
                      -DCXX=${CMAKE_CXX_COMPILER} "-DFLAGS=${CMAKE_CXX_FLAGS}" "-DGEN=${CMAKE_GENERATOR}"
                      -P ${CMAKE_CURRENT_SOURCE_DIR}/install.cmake)
 endif()
+
+# libFuzzer targets (Clang): cmake -DINNERTUBE_FUZZ=ON -DCMAKE_CXX_COMPILER=clang++. Not
+# ctests: run ./build-fuzz/tests/fuzz_json -max_total_time=600 <corpus dir>.
+option(INNERTUBE_FUZZ "Build the libFuzzer targets (needs Clang)" OFF)
+if(INNERTUBE_FUZZ)
+    add_executable(fuzz_json fuzz/fuzz_json.cpp ${PROJECT_SOURCE_DIR}/src/json/json.cpp)
+    target_include_directories(fuzz_json PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    set_target_properties(fuzz_json PROPERTIES CXX_STANDARD 17)
+    target_compile_options(fuzz_json PRIVATE -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=undefined)
+    target_link_options(fuzz_json PRIVATE -fsanitize=fuzzer,address,undefined)
+endif()

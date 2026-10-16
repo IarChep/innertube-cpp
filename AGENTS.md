@@ -34,6 +34,10 @@ Also run the transport suites with a dead proxy in the environment
 (`http_proxy=http://127.0.0.1:9 ./build/tests/tst_conformance_curl`): loopback tests
 must never depend on proxy settings.
 
+`yt::json` (`src/json/json.*`) reads every untrusted byte: after changing it, run the fuzz
+target for ten minutes per kernel (`-DINNERTUBE_FUZZ=ON` with Clang; see the comment in
+`tests/CMakeLists.txt`; `-DCMAKE_CXX_FLAGS=-U__SSE2__` builds the SWAR kernel on x86).
+
 The examples (`yt-cli`, `yt-watch`, `yt-channel`, `yt-suggest`) hit the live network
 and are not ctests; run one by hand when you touch request/parse code.
 
