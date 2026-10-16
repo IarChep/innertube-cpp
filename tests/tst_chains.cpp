@@ -1125,6 +1125,7 @@ TEST_CASE("a raw post keeps the error of a failed reply") {
 }
 // The endpoint is appended to the youtubei URL verbatim: anything but plain path segments
 // could reach another path or carry a query; the body must stay one object for the splice.
+// A body that only looked like one ('{' … '}') used to be sent and refused by YouTube (400).
 TEST_CASE("a raw post refuses a malformed endpoint or body, sending nothing") {
     const char *endpoints[] = {"", "/browse", "browse/", "a//b", "../browse", "browse?key=x", "browse#x",
                                "x@evil.com", "br owse", "browse%2F"};
@@ -1137,7 +1138,8 @@ TEST_CASE("a raw post refuses a malformed endpoint or body, sending nothing") {
         CHECK_MESSAGE((!c.r.ok() && c.r.error->code == ErrorCode::InvalidArgument), ep);
         CHECK_MESSAGE(t.sent.empty(), ep);
     }
-    const char *bodies[] = {"", "[1]", "\"x\"", "{\"a\":1", "{\"context\":{},\"a\":1}"};
+    const char *bodies[] = {"", "[1]", "\"x\"", "{\"a\":1", "{\"context\":{},\"a\":1}",
+                            "{a}", "{\"a\":}", "{\"a\":1,}", "{}{}", "{\"a\":\"\x01\"}"};
     for (const char *body : bodies) {
         FakeHttp t;
         Cap<std::string> c;
