@@ -13,9 +13,9 @@ using core::Reply;
 
 namespace {
 
-// Response-cache bound: a browsing session's worth (home + feeds + pages). Entries are
-// raw body strings — a full cache is a few MB at worst.
-constexpr size_t kMaxCacheEntries = 64;
+// Response-cache bound, in bytes of body + index: a browsing session's worth (home + feeds +
+// pages are 0.3-2 MB each). An entry count alone let the cache pass 100 MB on a 1 GB phone.
+constexpr size_t kMaxCacheBytes = 16u << 20;
 
 // Per-endpoint cache TTLs (seconds). 0 = never cache: writes must always hit the
 // network, and /player payloads carry short-lived stream URLs.
@@ -208,6 +208,7 @@ void HttpClient::clearCache()
     m_inflightByKey.clear();
     m_cache.clear();
     m_cacheOrder.clear();
+    m_cacheBytes = 0;
     for (int i = 0; i < kClientCount; ++i) { m_ctxValid[i] = false; m_hdrValid[i] = false; }
 }
 
@@ -515,11 +516,19 @@ void HttpClient::complete(const std::shared_ptr<Exchange> &ex, Reply r)
     forget(ex);
 
     if (r.ok && !ex->cacheKey.empty() && ex->ttlSecs > 0 && ex->gen == m_gen) {
-        if (!m_cache.count(ex->cacheKey)) m_cacheOrder.push_back(ex->cacheKey);
-        m_cache[ex->cacheKey] = CacheEntry{r.body, r.doc, Loop::Clock::now() + std::chrono::seconds(ex->ttlSecs)};
-        while (m_cacheOrder.size() > kMaxCacheEntries) {
-            m_cache.erase(m_cacheOrder.front());
-            m_cacheOrder.pop_front();
+        const size_t bytes = r.body->size() + r.doc->indexBytes();
+        if (bytes <= kMaxCacheBytes) {
+            auto old = m_cache.find(ex->cacheKey);
+            if (old == m_cache.end()) m_cacheOrder.push_back(ex->cacheKey);
+            else m_cacheBytes -= old->second.bytes;
+            m_cache[ex->cacheKey] = CacheEntry{r.body, r.doc, Loop::Clock::now() + std::chrono::seconds(ex->ttlSecs), bytes};
+            m_cacheBytes += bytes;
+            while (m_cacheBytes > kMaxCacheBytes) {
+                auto oldest = m_cache.find(m_cacheOrder.front());
+                m_cacheBytes -= oldest->second.bytes;
+                m_cache.erase(oldest);
+                m_cacheOrder.pop_front();
+            }
         }
     }
     // Adopt the server-issued visitorData from the first reply that carries one. The

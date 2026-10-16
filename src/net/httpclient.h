@@ -63,7 +63,12 @@ private:
     // gets the full timeout, not what is left of the first one's.
     struct Waiter { core::JobToken job; core::HttpFn fn; Loop::Clock::time_point deadline; };
     // The index is cached with the body: a hit is parsed without another pass.
-    struct CacheEntry { std::shared_ptr<const std::string> body; std::shared_ptr<const json::Doc> doc; Loop::Clock::time_point expires; };
+    struct CacheEntry {
+        std::shared_ptr<const std::string> body;
+        std::shared_ptr<const json::Doc> doc;
+        Loop::Clock::time_point expires;
+        size_t bytes = 0;                                           // body + index, for the budget
+    };
 
     std::shared_ptr<Exchange> newExchange(HttpRequest req, core::JobToken job, core::HttpFn fn);
     void launch(const std::shared_ptr<Exchange> &ex);
@@ -89,6 +94,7 @@ private:
     std::unordered_map<std::string, std::weak_ptr<Exchange>> m_inflightByKey;   // coalescing
     std::unordered_map<std::string, CacheEntry> m_cache;
     std::deque<std::string> m_cacheOrder;                       // FIFO bound
+    size_t m_cacheBytes = 0;                                    // sum of the entries' bytes
     static constexpr int kClientCount = kClientIdCount;
     std::string m_ctxCache[kClientCount];
     std::vector<HttpHeader> m_hdrCache[kClientCount];

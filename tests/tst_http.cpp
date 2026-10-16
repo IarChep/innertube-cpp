@@ -114,6 +114,34 @@ TEST_CASE("ttlCache") {
     f.pump();
     CHECK(f.ft.started.size() == 3);   // player is never cached
 }
+// The cache was bounded by entry count only (64): with 0.3–2 MB answers plus their index it
+// could hold well over 100 MB on a 1 GB phone. It is bounded in bytes now.
+TEST_CASE("cacheIsBoundedInBytes") {
+    Fx f;
+    // 5 MB of body + its index (the tape reserves 0.4 of the body) = 7 MB an entry.
+    const std::string mb5 = "{\"x\":\"" + std::string(5u << 20, 'a') + "\"}";
+    auto post = [&](const char *id) {
+        Got g;
+        f.h().post("browse", ClientId::WEB, std::string("{\"browseId\":\"") + id + "\"}", yt::core::newJob(), rec(g));
+        f.pump();
+        CHECK(g.r.ok);
+    };
+    for (const char *id : {"A", "B", "C"}) { f.ft.script(kBrowse, ok(mb5)); post(id); }
+    REQUIRE(f.ft.started.size() == 3);
+    post("C");
+    post("B");
+    CHECK(f.ft.started.size() == 3);   // the newest two are still cached
+    f.ft.script(kBrowse, ok(mb5));
+    post("A");
+    CHECK(f.ft.started.size() == 4);   // the oldest was evicted
+
+    const std::string mb12 = "{\"x\":\"" + std::string(12u << 20, 'a') + "\"}";
+    f.ft.script(kBrowse, ok(mb12));
+    f.ft.script(kBrowse, ok(mb12));
+    post("D");
+    post("D");
+    CHECK(f.ft.started.size() == 6);   // larger than the whole budget: never cached
+}
 TEST_CASE("apiEnvelope") {
     Fx f; f.ft.script(kBrowse, ok("{\"error\":{\"code\":400,\"message\":\"bad\"}}", 400));
     Got g;
