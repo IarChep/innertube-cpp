@@ -14,7 +14,7 @@ InnerTube API, split out of MeeTube (a YouTube client for the Nokia N9 / MeeGo
 Harmattan). It must stay fast and lean on a 1 GB-RAM ARM phone: every JSON reply is
 indexed once by `yt::json` (one validating pass, 4 bytes per token) and read lazily by
 path, not a DOM; a malloc per JSON node is a regression. Design history lives in
-`docs/specs/` and `docs/plans/`.
+`docs/specs/` and `docs/plans/`; the work in progress is §12 — read it before starting.
 
 ## 2. Build, test, definition of done
 
@@ -327,3 +327,35 @@ fix(lib): fence identity changes — stale refreshes, partial grants, in-flight 
 7. Report honestly: what changed, what was verified and how, what was not verified,
    and any behaviour change visible to consumers (public types, CMake minimums,
    error semantics).
+
+## 12. Current work
+
+Keep this section current: whoever finishes a step updates it in the same commit.
+
+**Task (owner, 2026-10-16):** feature parity with the Troubadour (iOS) and youtube_uwp (W10M)
+clients — every function they support must exist in the library, completely, so such a client
+is a thin UI over it. Defects found on the way are fixed first.
+
+- Inventory: `docs/specs/2026-10-16-feature-gap-list.md` — W1–W11 (defects), M1–M32
+  (missing), each with its source. When an item lands, note its commit there.
+- Design: `docs/specs/2026-10-16-feature-parity-design.md` — phases, request-signing and
+  routing tables (§4.1), public API sketch (§5), attribution rules (§2: ported code names its
+  author and file — Troubadour/Computershik73, youtube_uwp and the fork/zemonkamin,
+  TubeReplacer/Preloading; all permitted by their authors).
+- Phases, in this order: P0 correctness → P1 identities (web session, account channels,
+  locale ladder) → P2 personal surfaces and feeds → P3 content (Shorts, channel tabs, queue,
+  search filters, comments, chapters, SponsorBlock) → P4 live chat → P5 JS seam (n, PO token)
+  → P6 SABR, reload, media download.
+- Process: each phase gets a plan in `docs/plans/` (date-topic.md), the owner reviews it,
+  then it is executed task by task with TDD; one commit per logical change, every defect a
+  `fix(lib)` commit with a regression test. Commit only when the owner asks.
+- Reference sources are not in the tree: clone Troubadour
+  (github.com/Computershik73/Troubadour, `src/net/YTApi.m`) and youtube_uwp
+  (github.com/zemonkamin/youtube_uwp, `YouTube/Innertube/`) shallowly into a scratch
+  directory. zemonkamin's fork is an untracked copy in `zemonkamin-moded/` (pre-`yt::json`
+  code: port it, don't copy its Glaze/scanner parsers).
+- Live checks marked (S) in the design need the owner's signed-in account; record their date
+  and result in the phase plan.
+
+**Status:** inventory and design committed (b3447eb); design awaiting owner approval.
+**Next step:** the P0 plan, `docs/plans/2026-10-16-p0-correctness.md`.
