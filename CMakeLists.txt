@@ -32,6 +32,7 @@ add_library(innertube STATIC
     src/innertube/contextbuilder.cpp
     src/innertube/playerjs.cpp
     src/json/json3.cpp
+    src/json/json.cpp
     src/net/loop.cpp
     src/net/url.cpp
     src/core/pct.cpp
