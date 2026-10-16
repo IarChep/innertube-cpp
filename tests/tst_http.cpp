@@ -150,6 +150,19 @@ TEST_CASE("truncatedJsonIsInvalidAndUncached") {
     f.pump();
     CHECK(f.ft.started.size() == 2);   // not served from the cache
 }
+// The old envelope refused any body not opening with '{' or '['; the index accepts a lone
+// JSON scalar, which must not pass as an empty (cacheable) InnerTube answer either.
+TEST_CASE("scalarJsonBodyIsInvalid") {
+    for (const char *body : {"null", "1", "\"x\"", "true"}) {
+        Fx f;
+        f.ft.script(kBrowse, ok(body));
+        Got g;
+        f.h().post("browse", ClientId::WEB, "{}", yt::core::newJob(), rec(g));
+        f.pump();
+        CHECK_FALSE(g.r.ok);
+        CHECK(g.r.code == ErrorCode::InvalidResponse);
+    }
+}
 TEST_CASE("replyCarriesTheIndex") {
     Fx f;
     f.ft.script(kBrowse, ok("{\"x\":{\"y\":\"z\"}}"));

@@ -89,7 +89,8 @@ bool isRedirect(int status)
 void envelope(Reply &out, bool wantVisitor)
 {
     std::shared_ptr<const json::Doc> doc = std::make_shared<const json::Doc>(out.body);
-    if (!doc->ok()) {
+    // An answer is an object or an array; a lone scalar ("null" from a proxy) is not one.
+    if (!doc->root().isObject() && !doc->root().isArray()) {
         out.ok = false;
         out.code = ErrorCode::InvalidResponse;
         out.error = "invalid JSON response";
