@@ -1,8 +1,7 @@
 #include "net/httpclient.h"
 #include "core/log.h"
 #include "innertube/contextbuilder.h"
-#include "json/jsonscan.h"
-#include "json/shapes/common.h"
+#include "json/json.h"
 #include "net/url.h"
 #include <algorithm>
 #include <atomic>
@@ -82,61 +81,31 @@ bool isRedirect(int status)
     return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
 }
 
-// The single top-level envelope scan over a delivered body (MeeTube's makeReply,
-// minus its transport branches which the caller has already handled).
+// The envelope of a delivered JSON body (MeeTube's makeReply, minus its transport
+// branches which the caller has already handled). The one pass over the body: it builds
+// the JSON index the parsers then read, so a body that is not well-formed JSON (empty,
+// an HTML consent page, cut short) fails here as InvalidResponse — it used to reach the
+// parsers and come back as a spuriously empty (and cached) list.
 void envelope(Reply &out, bool wantVisitor)
 {
-    const std::string_view sv(*out.body);
-    // Cheap validity check instead of a whole-document validate pass: a JSON value must
-    // begin with '{' or '['. Empty / HTML (consent page) -> "invalid JSON response". A
-    // body that opens like JSON but is truncated degrades to "nothing collected" in the
-    // single-pass parsers (an empty result, not an error).
-    const char *p = gj::scan::skipWs(sv.data(), sv.data() + sv.size());
-    const char *e = sv.data() + sv.size();
-    if (p >= e || (*p != '{' && *p != '[')) {
+    std::shared_ptr<const json::Doc> doc = std::make_shared<const json::Doc>(out.body);
+    if (!doc->ok()) {
         out.ok = false;
         out.code = ErrorCode::InvalidResponse;
         out.error = "invalid JSON response";
         return;
     }
-    struct EnvelopeScan {
-        std::string_view error, responseContext;
-        bool wantVisitor;
-        void enter(int) {}
-        void leave(int) {}
-        gj::scan::Action what(std::string_view k, int depth)
-        {
-            if (depth != 0) return gj::scan::Action::Skip;
-            if (k == "error" && error.empty()) return gj::scan::Action::Capture;
-            if (wantVisitor && k == "responseContext" && responseContext.empty())
-                return gj::scan::Action::Capture;
-            return gj::scan::Action::Skip;
-        }
-        void capture(std::string_view k, std::string_view v, int)
-        { if (k == "error") error = v; else responseContext = v; }
-    } es{ {}, {}, wantVisitor };
-    gj::scan::document(sv, es);
-
+    out.doc = doc;
     // A top-level "error" of ANY type fails the reply; its message is used only when it
-    // is an object with a string message. The body stays populated (OAuth reads it).
-    if (!es.error.empty()) {
+    // is an object with a string message. The doc stays (OAuth reads its error code).
+    if (const json::Value err = doc->root()["error"]) {
         out.ok = false;
         out.code = ErrorCode::Api;
         out.error = "InnerTube error";
-        if (es.error.front() == '{') {
-            gj::ErrorEnvelope err{};
-            gj::readJson(err, es.error);
-            if (err.message) out.error = *err.message;
-        }
+        if (const json::Value m = err["message"]; m.isString()) out.error = m.string();
         return;
     }
-    if (wantVisitor && !es.responseContext.empty() && es.responseContext.front() == '{') {
-        const std::string_view vdv = gj::scan::topLevelValue(es.responseContext, "visitorData");
-        if (!vdv.empty() && vdv.front() == '"') {
-            std::string vd;
-            if (!glz::read<gj::kIn>(vd, vdv)) out.visitorData = std::move(vd);
-        }
-    }
+    if (wantVisitor) out.visitorData = doc->root().path("responseContext", "visitorData").string();
     out.ok = true;
 }
 
@@ -325,13 +294,15 @@ void HttpClient::post(std::string_view endpoint, ClientId client, std::string bo
         auto hit = m_cache.find(key);
         if (hit != m_cache.end() && hit->second.expires > Loop::Clock::now()) {
             std::weak_ptr<char> life = m_life;
+            std::shared_ptr<const json::Doc> doc = hit->second.doc;
             std::shared_ptr<const std::string> body = hit->second.body;
-            m_loop.post([life, job, done, body]() {
+            m_loop.post([life, job, done, body, doc]() {
                 if (life.expired() || !core::live(job)) return;
                 Reply r;
                 r.ok = true;
                 r.httpStatus = 200;
                 r.body = body;
+                r.doc = doc;
                 done(r);
             });
             return;
@@ -545,7 +516,7 @@ void HttpClient::complete(const std::shared_ptr<Exchange> &ex, Reply r)
 
     if (r.ok && !ex->cacheKey.empty() && ex->ttlSecs > 0 && ex->gen == m_gen) {
         if (!m_cache.count(ex->cacheKey)) m_cacheOrder.push_back(ex->cacheKey);
-        m_cache[ex->cacheKey] = CacheEntry{r.body, Loop::Clock::now() + std::chrono::seconds(ex->ttlSecs)};
+        m_cache[ex->cacheKey] = CacheEntry{r.body, r.doc, Loop::Clock::now() + std::chrono::seconds(ex->ttlSecs)};
         while (m_cacheOrder.size() > kMaxCacheEntries) {
             m_cache.erase(m_cacheOrder.front());
             m_cacheOrder.pop_front();

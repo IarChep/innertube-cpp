@@ -8,6 +8,7 @@
 #include "core/session.h"
 #include "innertube/clientconfig.h"
 #include "innertube/contextbuilder.h"
+#include "json/json.h"
 #include <functional>
 #include <memory>
 #include <string>
@@ -16,14 +17,19 @@
 namespace yt::core {
 
 // One finished request. body is never null and stays populated on !ok (OAuth reads
-// its error code from a failed reply); visitorData is pre-extracted by the envelope scan.
+// its error code from a failed reply); visitorData is pre-extracted by the envelope.
+// doc is the body's JSON index, built once by the transport for every JSON reply (post,
+// postForm, get) that is well-formed — also an "error" one; null for fetch() and for a
+// body that is not JSON. Parsers read json(), never the body again.
 struct Reply {
     bool ok = false;
     std::shared_ptr<const std::string> body = std::make_shared<std::string>();
+    std::shared_ptr<const json::Doc> doc;
     ErrorCode code = ErrorCode::Transport;   // meaningful when !ok
     std::string error;
     long httpStatus = 0;
     std::string visitorData;
+    json::Value json() const { return doc ? doc->root() : json::Value(); }
 };
 using HttpFn = std::function<void(const Reply &)>;
 

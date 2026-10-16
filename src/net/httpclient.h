@@ -62,7 +62,8 @@ private:
     // Each waiter has its own deadline: a request coalesced onto an older exchange still
     // gets the full timeout, not what is left of the first one's.
     struct Waiter { core::JobToken job; core::HttpFn fn; Loop::Clock::time_point deadline; };
-    struct CacheEntry { std::shared_ptr<const std::string> body; Loop::Clock::time_point expires; };
+    // The index is cached with the body: a hit is parsed without another pass.
+    struct CacheEntry { std::shared_ptr<const std::string> body; std::shared_ptr<const json::Doc> doc; Loop::Clock::time_point expires; };
 
     std::shared_ptr<Exchange> newExchange(HttpRequest req, core::JobToken job, core::HttpFn fn);
     void launch(const std::shared_ptr<Exchange> &ex);

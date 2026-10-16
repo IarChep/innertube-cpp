@@ -58,6 +58,7 @@ public:
             r.ok = true;
             r.httpStatus = 200;
             r.body = std::make_shared<const std::string>(m_getBody);
+            r.doc = docOf(r.body);
         } else {
             r.error = "no get fixture";
         }
@@ -103,6 +104,12 @@ public:
 
 private:
     struct Queued { std::string body; long status; std::string visitor; };
+    // Like HttpClient's envelope: a well-formed JSON body carries its index.
+    static std::shared_ptr<const yt::json::Doc> docOf(const std::shared_ptr<const std::string> &body)
+    {
+        auto d = std::make_shared<const yt::json::Doc>(body);
+        return d->ok() ? d : nullptr;
+    }
     struct Waiter { yt::core::JobToken job; yt::core::HttpFn fn; yt::core::Reply reply; };
     void deliver(Waiter &w)
     {
@@ -121,6 +128,7 @@ private:
             r.httpStatus = q.status;
             r.visitorData = q.visitor;
             r.body = std::make_shared<const std::string>(std::move(q.body));
+            r.doc = docOf(r.body);
             if (q.status == 0) { r.code = yt::ErrorCode::Transport; r.error = "network down"; r.body = std::make_shared<const std::string>(); }
             else if (q.status >= 400) { r.code = yt::ErrorCode::Api; r.error = "HTTP " + std::to_string(q.status); }
             else r.ok = true;

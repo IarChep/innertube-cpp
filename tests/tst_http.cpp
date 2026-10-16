@@ -134,6 +134,35 @@ TEST_CASE("htmlInvalid") {
     CHECK_FALSE(g.r.ok);
     CHECK(g.r.code == ErrorCode::InvalidResponse);
 }
+// A 2xx body cut short without a transport error (a proxy closing early) used to pass the
+// envelope check — it only looked at the first byte — and parse as an empty, cached list.
+TEST_CASE("truncatedJsonIsInvalidAndUncached") {
+    Fx f;
+    f.ft.script(kBrowse, ok("{\"contents\":[{\"a\":1},"));
+    f.ft.script(kBrowse, ok("{\"contents\":[{\"a\":1},"));
+    Got a, b;
+    f.h().post("browse", ClientId::WEB, "{\"browseId\":\"A\"}", yt::core::newJob(), rec(a));
+    f.pump();
+    CHECK_FALSE(a.r.ok);
+    CHECK(a.r.code == ErrorCode::InvalidResponse);
+    CHECK(a.r.doc == nullptr);
+    f.h().post("browse", ClientId::WEB, "{\"browseId\":\"A\"}", yt::core::newJob(), rec(b));
+    f.pump();
+    CHECK(f.ft.started.size() == 2);   // not served from the cache
+}
+TEST_CASE("replyCarriesTheIndex") {
+    Fx f;
+    f.ft.script(kBrowse, ok("{\"x\":{\"y\":\"z\"}}"));
+    Got a, b;
+    f.h().post("browse", ClientId::WEB, "{\"browseId\":\"A\"}", yt::core::newJob(), rec(a));
+    f.pump();
+    REQUIRE(a.r.ok);
+    CHECK(a.r.json()["x"]["y"].str() == "z");
+    f.h().post("browse", ClientId::WEB, "{\"browseId\":\"A\"}", yt::core::newJob(), rec(b));
+    f.pump();
+    CHECK(b.r.doc == a.r.doc);           // a cache hit is not indexed again
+    CHECK(f.ft.started.size() == 1);
+}
 TEST_CASE("timeout") {
     Fx f; f.o.timeoutMs = 50;
     FakeExchange x; x.hang = true; f.ft.script(kBrowse, x);
