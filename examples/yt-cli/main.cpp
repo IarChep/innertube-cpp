@@ -10,7 +10,7 @@
 //   yt-cli playlist <link>         e.g. PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI
 //   yt-cli comments <link>
 //   yt-cli raw <endpoint> [json]   e.g. raw browse '{"browseId":"FEwhat_to_watch"}' (unstable)
-//   yt-cli signin                  device-code login; state saved to ./yt-cli-state.txt
+//   yt-cli signin                  device-code login; state saved to ./yt-cli-state.json
 #include <yt/yt.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -19,27 +19,25 @@
 #include <cstdlib>
 #include <fstream>
 #include <future>
+#include <iterator>
 
 namespace {
 
-// One "key=value" per line: the values (tokens, ids, hl/gl) never contain a newline.
-const char *kStateFile = "yt-cli-state.txt";
+// One JSON object, written and read with yt/json.h; a missing or broken file is a fresh state.
+const char *kStateFile = "yt-cli-state.json";
 
 yt::SessionState load()
 {
     yt::SessionState s;
-    std::ifstream f(kStateFile);
-    for (std::string line; std::getline(f, line);) {
-        const size_t eq = line.find('=');
-        if (eq == std::string::npos) continue;
-        const std::string key = line.substr(0, eq), value = line.substr(eq + 1);
-        if (key == "hl") s.hl = value;
-        else if (key == "gl") s.gl = value;
-        else if (key == "visitorData") s.visitorData = value;
-        else if (key == "refreshToken") s.refreshToken = value;
-        else if (key == "playerId") s.playerId = value;
-        else if (key == "signatureTimestamp") s.signatureTimestamp = std::atoi(value.c_str());
-    }
+    std::ifstream f(kStateFile, std::ios::binary);
+    const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    const yt::json::Doc d(text);
+    if (const yt::json::Value v = d["hl"]) s.hl = v.string();
+    if (const yt::json::Value v = d["gl"]) s.gl = v.string();
+    s.visitorData = d["visitorData"].string();
+    s.refreshToken = d["refreshToken"].string();
+    s.playerId = d["playerId"].string();
+    s.signatureTimestamp = (int) d["signatureTimestamp"].int64();
     return s;
 }
 
@@ -47,9 +45,11 @@ yt::SessionState load()
 // renamed so a crash never leaves a half-written state behind.
 void save(const yt::SessionState &s)
 {
-    const std::string text = "hl=" + s.hl + "\ngl=" + s.gl + "\nvisitorData=" + s.visitorData + "\nrefreshToken="
-                           + s.refreshToken + "\nplayerId=" + s.playerId + "\nsignatureTimestamp="
-                           + std::to_string(s.signatureTimestamp) + "\n";
+    yt::json::Writer w;
+    w.beginObject().member("hl", s.hl).member("gl", s.gl).member("visitorData", s.visitorData)
+        .member("refreshToken", s.refreshToken).member("playerId", s.playerId)
+        .member("signatureTimestamp", s.signatureTimestamp).endObject();
+    const std::string text = w.take() + "\n";
     const std::string tmp = std::string(kStateFile) + ".tmp";
     const int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
     if (fd < 0) return;
@@ -202,9 +202,10 @@ int main(int argc, char **argv)
         return 0;
     }
     if (cmd == "raw") {                              // unstable escape hatch: prints the JSON
-        const yt::Result<std::string> r = yt.raw().post(arg, yt::ClientId::WEB, argc > 3 ? argv[3] : "{}").get();
+        const auto r = yt.raw().post(arg, yt::ClientId::WEB, argc > 3 ? argv[3] : "{}").get();
         if (!r.ok()) return fail(*r.error);
-        std::printf("%s\n", r.value.c_str());
+        const std::string_view body = r.value->text();
+        std::printf("%.*s\n", (int) body.size(), body.data());
         return 0;
     }
     if (cmd == "signin") return signin(yt);

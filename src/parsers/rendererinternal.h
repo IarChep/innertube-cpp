@@ -6,8 +6,8 @@
 // are read — a renderer's shape lives in exactly one converter. Everything is `inline`
 // so the TUs share one definition (COMDAT-folded by the linker).
 //
+#include <yt/json.h>
 #include "rendererparser.h"
-#include "json/json.h"
 #include "json/ytjson.h"
 #include "textmatch.h"
 #include <string>

@@ -161,14 +161,23 @@ The full contract is in the header of [`include/yt/client.h`](include/yt/client.
 
 For an InnerTube call the groups do not cover yet, `yt.raw().post(endpoint, client, json)`
 sends it with everything the library adds — the context (client identity, locale,
-visitorData), the bearer when signed in, timeouts, the 401 retry — and returns the response
-JSON as text. Nothing is parsed for you, and YouTube changes these endpoints without notice:
+visitorData), the bearer when signed in, timeouts, the 401 retry — and returns the answer
+indexed by the library's own JSON reader, [`<yt/json.h>`](include/yt/json.h): read it by
+path (an absent step reads as ""/0/false, no checks between steps); `text()` is the raw body.
+Nothing maps it to `yt::` types for you, and YouTube changes these endpoints without notice:
 prefer a group method, and ask for one when you need the same call twice.
 
 ```cpp
-yt::Result<std::string> r = yt.raw().post("navigation/resolve_url", yt::ClientId::WEB,
-                                          R"({"url":"https://www.youtube.com/@NASA"})").get();
+auto r = yt.raw().post("navigation/resolve_url", yt::ClientId::WEB,
+                       R"({"url":"https://www.youtube.com/@NASA"})").get();
+if (r.ok()) {
+    std::string_view id = r.value->root().path("endpoint", "browseEndpoint", "browseId").str();
+}
 ```
+
+`yt::json` is usable on its own too (C++17, no dependencies): `yt::json::Doc` validates and
+indexes a buffer in one pass, `Value::find` walks it without recursion, `yt::json::Writer`
+writes compact JSON.
 
 ## Sign-in and persistence
 

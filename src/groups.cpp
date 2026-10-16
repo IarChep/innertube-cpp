@@ -251,9 +251,10 @@ Job Account::subscriptions(Callback<Page<Channel>> done)
 
 // ---- Raw ----
 
-Job Raw::post(std::string endpoint, ClientId client, std::string json, Callback<std::string> done)
+Job Raw::post(std::string endpoint, ClientId client, std::string json, Callback<std::shared_ptr<const json::Doc>> done)
 {
-    return run<std::string>(m_e, [endpoint, client, json](core::IHttp &h, const core::JobToken &t, Callback<std::string> d) {
+    using Answer = std::shared_ptr<const json::Doc>;
+    return run<Answer>(m_e, [endpoint, client, json](core::IHttp &h, const core::JobToken &t, Callback<Answer> d) {
         core::rawPost(h, endpoint, client, json, t, std::move(d));
     }, std::move(done));
 }
@@ -375,10 +376,11 @@ std::future<Result<Page<Channel>>> Account::subscriptions()
 {
     return detail::futureOf<Page<Channel>>([&](Callback<Page<Channel>> cb) { return subscriptions(std::move(cb)); });
 }
-std::future<Result<std::string>> Raw::post(std::string endpoint, ClientId client, std::string json)
+std::future<Result<std::shared_ptr<const json::Doc>>> Raw::post(std::string endpoint, ClientId client, std::string json)
 {
-    return detail::futureOf<std::string>(
-        [&](Callback<std::string> cb) { return post(std::move(endpoint), client, std::move(json), std::move(cb)); });
+    using Answer = std::shared_ptr<const json::Doc>;
+    return detail::futureOf<Answer>(
+        [&](Callback<Answer> cb) { return post(std::move(endpoint), client, std::move(json), std::move(cb)); });
 }
 
 }

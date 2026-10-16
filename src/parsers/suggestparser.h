@@ -1,6 +1,6 @@
 #ifndef YT_SUGGESTPARSER_H
 #define YT_SUGGESTPARSER_H
-#include "json/json.h"
+#include <yt/json.h>
 #include <string>
 #include <vector>
 namespace yt {

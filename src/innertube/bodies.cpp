@@ -1,6 +1,6 @@
 #include "bodies.h"
+#include <yt/json.h>
 #include "innertube/catalog.h"
-#include "json/json.h"
 
 namespace yt {
 namespace bodies {

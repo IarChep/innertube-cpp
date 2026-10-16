@@ -1,6 +1,6 @@
 #include "contextbuilder.h"
+#include <yt/json.h>
 #include "catalog.h"
-#include "json/json.h"
 namespace yt {
 
 // IOS is used ONLY for the anonymous /player and must stay "clean" (no visitorData /

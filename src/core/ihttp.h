@@ -1,6 +1,7 @@
 // The transport seam the request chains (and FakeHttp) program against.
 #ifndef YT_CORE_IHTTP_H
 #define YT_CORE_IHTTP_H
+#include <yt/json.h>
 #include <yt/log.h>
 #include <yt/result.h>
 #include "core/job.h"
@@ -8,7 +9,6 @@
 #include "core/session.h"
 #include "innertube/clientconfig.h"
 #include "innertube/contextbuilder.h"
-#include "json/json.h"
 #include <functional>
 #include <memory>
 #include <string>

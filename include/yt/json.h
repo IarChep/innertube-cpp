@@ -1,6 +1,6 @@
 // yt::json — read JSON over an unmodified buffer, and write small JSON. The bottom of the
-// layering: std only, no YouTube knowledge, C++17, so every parser and the transport read
-// through it and it can leave the project as is.
+// layering: std only, no YouTube knowledge, so every parser and the transport read through
+// it, consumers read Client::raw() answers with it, and it can leave the project as is.
 //
 // Reading is one validating pass that builds an index (the "tape"), then cheap views read
 // lazily. A malloc per JSON node is what ruled out a DOM on the N9; re-skipping siblings
@@ -10,9 +10,9 @@
 // Tape: one u32 per token, two per object/array. Word = kind (2 bits) | flag (1 bit) |
 // offset (29 bits). The flag marks a string/key that has escapes, or an object (vs array).
 // An object/array's second word is the tape index just past its matching close, so any
-// subtree is skipped in O(1). Strings are never copied unless they have escapes.
-#ifndef YT_JSON_JSON_H
-#define YT_JSON_JSON_H
+// subtree is skipped in O(1). Strings are never copied unless they have escapes. C++17.
+#ifndef YT_JSON_H
+#define YT_JSON_H
 #include <cstddef>
 #include <cstdint>
 #include <cstring>

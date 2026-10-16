@@ -1,7 +1,7 @@
 #include "net/httpclient.h"
+#include <yt/json.h>
 #include "core/log.h"
 #include "innertube/contextbuilder.h"
-#include "json/json.h"
 #include "net/url.h"
 #include <algorithm>
 #include <atomic>

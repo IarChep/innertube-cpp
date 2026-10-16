@@ -1094,21 +1094,28 @@ TEST_CASE("Watch Later signed out is AuthRequired, without a request") {
     CHECK(t.sent.empty());
 }
 // ---- rawPost: the escape hatch (Client::raw) ----
-TEST_CASE("a raw post goes out like any request and delivers the body") {
+TEST_CASE("a raw post goes out like any request and delivers the indexed answer") {
     FakeHttp t;
-    t.queue("browse", "{\"contents\":{}}");
-    Cap<std::string> c;
+    t.queue("browse", "{\"contents\":{\"a\":\"x\"}}");
+    Cap<std::shared_ptr<const yt::json::Doc>> c;
     rawPost(t, "browse", ClientId::TVHTML5, "  {\"browseId\":\"FEwhat_to_watch\"} \n", newJob(), c.fn());
     t.flush();
     REQUIRE(c.r.ok());
-    CHECK(c.r.value == "{\"contents\":{}}");
+    REQUIRE(c.r.value);
+    CHECK(c.r.value->text() == "{\"contents\":{\"a\":\"x\"}}");
+    CHECK(c.r.value->root().path("contents", "a").str() == "x");
+    // The caller reads it on its own thread: never the reply's index, which the transport
+    // caches and the engine thread may read at the same time — but over the same body.
+    REQUIRE(t.docs.size() == 1);
+    CHECK(c.r.value != t.docs[0]);
+    CHECK(c.r.value->text().data() == t.docs[0]->text().data());
     CHECK(t.sent[0] == "{\"browseId\":\"FEwhat_to_watch\"}");   // trimmed for the context splice
     CHECK(t.lastClientFor("browse") == (int) ClientId::TVHTML5);
 }
 TEST_CASE("a raw post with an empty object sends {}") {
     FakeHttp t;
     t.queue("account/accounts_list", "{}");
-    Cap<std::string> c;
+    Cap<std::shared_ptr<const yt::json::Doc>> c;
     rawPost(t, "account/accounts_list", ClientId::WEB, "{ \n }", newJob(), c.fn());
     t.flush();
     REQUIRE(c.r.ok());
@@ -1117,7 +1124,7 @@ TEST_CASE("a raw post with an empty object sends {}") {
 TEST_CASE("a raw post keeps the error of a failed reply") {
     FakeHttp t;
     t.queue("next", "{\"error\":{}}", 400);
-    Cap<std::string> c;
+    Cap<std::shared_ptr<const yt::json::Doc>> c;
     rawPost(t, "next", ClientId::WEB, "{}", newJob(), c.fn());
     t.flush();
     REQUIRE_FALSE(c.r.ok());
@@ -1131,7 +1138,7 @@ TEST_CASE("a raw post refuses a malformed endpoint or body, sending nothing") {
                                "x@evil.com", "br owse", "browse%2F"};
     for (const char *ep : endpoints) {
         FakeHttp t;
-        Cap<std::string> c;
+        Cap<std::shared_ptr<const yt::json::Doc>> c;
         rawPost(t, ep, ClientId::WEB, "{}", newJob(), c.fn());
         t.flush();
         CHECK_MESSAGE(c.calls == 1, ep);
@@ -1142,7 +1149,7 @@ TEST_CASE("a raw post refuses a malformed endpoint or body, sending nothing") {
                             "{a}", "{\"a\":}", "{\"a\":1,}", "{}{}", "{\"a\":\"\x01\"}"};
     for (const char *body : bodies) {
         FakeHttp t;
-        Cap<std::string> c;
+        Cap<std::shared_ptr<const yt::json::Doc>> c;
         rawPost(t, "browse", ClientId::WEB, body, newJob(), c.fn());
         t.flush();
         CHECK_MESSAGE((!c.r.ok() && c.r.error->code == ErrorCode::InvalidArgument), body);

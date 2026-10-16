@@ -8,8 +8,8 @@ cd "$(dirname "$0")"
 SYSROOT=$(echo $TC/*-linux-gnueabihf/sysroot)
 A="-std=c++17 -O2 -DNDEBUG -mcpu=cortex-a8 -mfpu=neon -mfloat-abi=hard"
 mkdir -p out/arm
-$TC/bin/arm-linux-g++ $A -DNAME='"yt_json_neon"' -I../src c_json.cpp ../src/json/json.cpp -o out/arm/yt_json
-$TC/bin/arm-linux-g++ $A -U__ARM_NEON -DNAME='"yt_json_swar32"' -I../src c_json.cpp ../src/json/json.cpp -o out/arm/yt_json_swar
+$TC/bin/arm-linux-g++ $A -DNAME='"yt_json_neon"' -I../src -I../include c_json.cpp ../src/json/json.cpp -o out/arm/yt_json
+$TC/bin/arm-linux-g++ $A -U__ARM_NEON -DNAME='"yt_json_swar32"' -I../src -I../include c_json.cpp ../src/json/json.cpp -o out/arm/yt_json_swar
 $TC/bin/arm-linux-gcc -O2 -mcpu=cortex-a8 -mfpu=neon -mfloat-abi=hard -c ext/yyjson/src/yyjson.c -o out/arm/yyjson.o
 $TC/bin/arm-linux-g++ ${A/c++17/c++23} -Iext/yyjson/src c_yyjson.cpp out/arm/yyjson.o -o out/arm/yyjson
 for b in yt_json yt_json_swar yyjson; do

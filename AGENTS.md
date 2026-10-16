@@ -35,7 +35,7 @@ Also run the transport suites with a dead proxy in the environment
 (`http_proxy=http://127.0.0.1:9 ./build/tests/tst_conformance_curl`): loopback tests
 must never depend on proxy settings.
 
-`yt::json` (`src/json/json.*`) reads every untrusted byte: after changing it, run the fuzz
+`yt::json` (`include/yt/json.h`, `src/json/json.cpp`) reads every untrusted byte: after changing it, run the fuzz
 target for ten minutes per kernel (`-DINNERTUBE_FUZZ=ON` with Clang; see the comment in
 `tests/CMakeLists.txt`; `-DCMAKE_CXX_FLAGS=-U__SSE2__` builds the SWAR kernel on x86).
 
@@ -60,7 +60,8 @@ src/               the implementation — C++23, private
   core/            request chains over the IHttp seam, JobToken, logging, pct-encoding
   net/             Loop (tasks + timers), HttpClient (transport policy), URL helpers
   innertube/       client identities, context/header builder, POST body builders, player-JS scans (playerjs)
-  json/            yt::json (index, views, find, writer), YouTube helpers (ytjson.h), json3
+  json/            yt::json's builder (json.cpp; the API is the public <yt/json.h>),
+                   YouTube helpers (ytjson.h), json3
   parsers/         response → yt:: value types (paths over json::Value)
 backends/curl/     the default HttpTransport (the only code that includes <curl/curl.h>)
 backends/none/     no-backend build
@@ -279,7 +280,7 @@ TEST_CASE("non2xxWithoutErrorMemberFailsAndIsNotCached") {
 ## 10. Commits
 
 Commit only when the human asks. One logical change per commit; never commit build
-trees, `compile_commands.json` or `yt-cli-state.txt`.
+trees, `compile_commands.json` or `yt-cli-state.json`.
 
 ```
 <scope>: <what, lowercase, no trailing period>

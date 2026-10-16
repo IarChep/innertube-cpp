@@ -107,9 +107,11 @@ void fetchSearchSuggestions(IHttp &, std::string query, const JobToken &, Callba
 // Client::raw: POST youtubei/v1/<endpoint> as `client` with `json` as the body. The
 // endpoint is appended to the base URL verbatim, so it must be path segments of
 // [A-Za-z0-9_]; the body must be one JSON object without "context" (the transport splices
-// it in). Either wrong is InvalidArgument and nothing is sent. Delivers the response body.
+// it in). Either wrong is InvalidArgument and nothing is sent. Delivers a Doc of its own
+// over the answer's body: the reply's index is shared with the transport's cache (read on
+// the engine thread), the caller reads this one on its thread.
 void rawPost(IHttp &, std::string endpoint, ClientId client, std::string json, const JobToken &,
-             Callback<std::string> done);
+             Callback<std::shared_ptr<const json::Doc>> done);
 // OAuth device-code flow (form posts, no context). One poll per call; the retry
 // loop lives in Auth.
 void oauthDeviceCode(IHttp &, const JobToken &, Callback<DeviceCodeGrant> done);

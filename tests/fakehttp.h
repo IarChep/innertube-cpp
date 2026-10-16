@@ -26,6 +26,7 @@ public:
     std::vector<int> sentClients;                                    // ClientId of every post, in order
     struct Fetched { std::string url; std::vector<yt::Header> headers; };
     std::vector<Fetched> fetched;                                    // every fetch(), in order
+    std::vector<std::shared_ptr<const yt::json::Doc>> docs;           // the index of every reply, in order
     int visitorResets = 0, playerJsSets = 0;
     // The ClientId each endpoint was last posted with (recorded at post() time); -1 if never.
     int lastClientFor(const std::string &endpoint) const
@@ -129,6 +130,7 @@ private:
             r.visitorData = q.visitor;
             r.body = std::make_shared<const std::string>(std::move(q.body));
             r.doc = docOf(r.body);
+            docs.push_back(r.doc);
             if (q.status == 0) { r.code = yt::ErrorCode::Transport; r.error = "network down"; r.body = std::make_shared<const std::string>(); }
             else if (q.status >= 400) { r.code = yt::ErrorCode::Api; r.error = "HTTP " + std::to_string(q.status); }
             else r.ok = true;

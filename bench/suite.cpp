@@ -1,6 +1,6 @@
 // JSONTestSuite (nst/JSONTestSuite, fetched by fetch.sh) against yt::json: every y_ file
 // must be accepted, every n_ file refused; i_ files are implementation-defined and counted.
-#include "json/json.h"
+#include <yt/json.h>
 #include <cstdio>
 #include <dirent.h>
 #include <fstream>

@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 [ -d out/corpus ] || { mkdir -p out && zstd -dc corpus.tar.zst | tar -C out -x; }
 mkdir -p out/expect && OUT=out/expect python3 -I oracle.py out/corpus/*
 ./build.sh
-g++ -std=c++17 -O2 -I../src suite.cpp ../src/json/json.cpp -o out/suite && out/suite
+g++ -std=c++17 -O2 -I../src -I../include suite.cpp ../src/json/json.cpp -o out/suite && out/suite
 rm -f out/r_*.tsv
 for b in yt_json yt_json_swar sonic simdjson_od simdjson_dom yyjson rapidjson; do
     taskset -c 2 out/$b out/corpus out/expect ${1:-300} > out/r_$b.tsv || echo "$b: MISMATCH against the oracle"

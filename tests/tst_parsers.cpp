@@ -2,9 +2,9 @@
 // tst_meetube_parsers: same fixtures, same expected values; CT:: field renames per
 // include/yt/types.h).
 #include <doctest/doctest.h>
+#include <yt/json.h>
 #include "innertube/playerjs.h"
 #include "parsers/continuation.h"
-#include "json/json.h"
 #include "json/json3.h"
 #include "json/ytjson.h"
 #include "parsers/rendererparser.h"

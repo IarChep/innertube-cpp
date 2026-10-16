@@ -4,6 +4,7 @@
 #include <yt/auth.h>
 #include <yt/catalog.h>
 #include <yt/client.h>
+#include <yt/json.h>
 #include <yt/link.h>
 #include <yt/log.h>
 #include <yt/player.h>

@@ -132,7 +132,12 @@ ARM was not measured** (qemu timing is meaningless; no device here) — see §9.
 
 ## 6. The design
 
-### 6.1 `yt::json` — `src/json/json.h` (+ `json.cpp` for the builder and decoder)
+### 6.1 `yt::json` — `include/yt/json.h` (+ `src/json/json.cpp` for the builder and decoder)
+
+Public since 2026-10-16 (owner's decision after the migration): `Client::raw().post` delivers
+a `std::shared_ptr<const json::Doc>` — a Doc of its own over the reply's body, never the
+cached one, because escaped strings decode into the Doc on first read and a Doc is read by
+one thread at a time.
 
 A self-contained component (std only, C++17-compatible, no YouTube knowledge), usable outside
 libinnertube.
@@ -183,8 +188,8 @@ Request bodies (`innertube/bodies.cpp`, `contextbuilder.cpp`) are small fixed ob
 through Glaze reflection today (117 + 94 KiB of objects). A ~60-line `json::Writer`
 (`obj/arr/key/str/num/boolean/end`, RFC 8259 string escaping) replaces it; `json3.cpp` and the
 OAuth/RYD readers move to `Value`. Glaze (12 MB in `third_party/`) is then unused by the
-library. `yt-cli` uses the public API only, so it cannot use `yt::json`: its state file
-becomes `key=value` lines (`yt-cli-state.txt`). Found on the way: Glaze writes control bytes
+library. `yt-cli` writes and reads its state file (`yt-cli-state.json`) with the same
+writer and `Doc` (the header became public afterwards, see below). Found on the way: Glaze writes control bytes
 other than `\b\f\n\r\t` raw, so a body carrying one was invalid JSON; the writer escapes them.
 
 ## 7. Counter-argument (where the proposal is weaker)

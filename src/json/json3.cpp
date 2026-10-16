@@ -1,6 +1,6 @@
 // json3 caption parsing: the events[] of one document (see json3.h).
 #include "json/json3.h"
-#include "json/json.h"
+#include <yt/json.h>
 #include "json/ytjson.h"
 namespace yt {
 

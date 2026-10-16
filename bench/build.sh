@@ -8,8 +8,8 @@ E=ext; S=../src; mkdir -p out
 F="-std=c++23 -O2 -DNDEBUG -march=x86-64-v3"
 gcc -O2 -DNDEBUG -march=x86-64-v3 -c $E/yyjson/src/yyjson.c -o out/yyjson.o
 [ -f out/simdjson.o ] || g++ $F -c $E/simdjson/singleheader/simdjson.cpp -o out/simdjson.o
-g++ $F -DNAME='"yt_json_sse2"' -I$S c_json.cpp $S/json/json.cpp -o out/yt_json
-g++ $F -U__SSE2__ -DNAME='"yt_json_swar"' -I$S c_json.cpp $S/json/json.cpp -o out/yt_json_swar
+g++ $F -DNAME='"yt_json_sse2"' -I$S -I../include c_json.cpp $S/json/json.cpp -o out/yt_json
+g++ $F -U__SSE2__ -DNAME='"yt_json_swar"' -I$S -I../include c_json.cpp $S/json/json.cpp -o out/yt_json_swar
 g++ $F -I$E/yyjson/src c_yyjson.cpp out/yyjson.o -o out/yyjson
 g++ $F -I$E/simdjson/singleheader c_simdjson_dom.cpp out/simdjson.o -o out/simdjson_dom
 g++ $F -mpclmul -I$E/simdjson/singleheader c_ondemand.cpp out/simdjson.o -o out/simdjson_od

@@ -1,6 +1,6 @@
 // The oracle workload on the library's yt::json (src/json), written the way a parser is.
+#include <yt/json.h>
 #include "harness.h"
-#include "json/json.h"
 using yt::json::Value;
 using yt::json::Visit;
 

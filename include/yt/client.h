@@ -15,6 +15,7 @@
 #define YT_CLIENT_H
 #include <yt/auth.h>
 #include <yt/catalog.h>
+#include <yt/json.h>
 #include <yt/link.h>
 #include <yt/log.h>
 #include <yt/player.h>
@@ -207,8 +208,9 @@ private:
 };
 
 // Raw InnerTube requests: the escape hatch for what the groups do not cover yet. UNSTABLE:
-// YouTube changes these endpoints and their JSON without notice, and nothing here parses
-// for you — prefer a group method, and ask for one when you need the same call twice.
+// YouTube changes these endpoints and their JSON without notice, and nothing here maps the
+// answer to yt:: types for you — prefer a group method, and ask for one when you need the
+// same call twice.
 class Raw {
 public:
     // POST youtubei/v1/<endpoint> as `client`. The library adds the context (client
@@ -216,10 +218,14 @@ public:
     // its transport policy (timeout, one retry after a 401 refresh, the short cache of
     // browse/search/next). `endpoint`: "browse", "next", "account/accounts_list"… (path
     // segments of A-Z a-z 0-9 _). `json`: the body without "context", one JSON object ("{}"
-    // for none). Delivers the response body; an "error" envelope or a non-2xx answer fails
-    // as usual. A malformed endpoint or body is ErrorCode::InvalidArgument, sent nowhere.
-    Job post(std::string endpoint, ClientId client, std::string json, Callback<std::string> done);
-    std::future<Result<std::string>> post(std::string endpoint, ClientId client, std::string json);
+    // for none). Delivers the answer indexed (yt/json.h): read it by path; its text() is the
+    // body. The Doc is the caller's own — not the one the library caches — and keeps the
+    // body alive; read it from one thread at a time. An "error" envelope or a non-2xx answer
+    // fails as usual. A malformed endpoint or body is ErrorCode::InvalidArgument, sent nowhere.
+    Job post(std::string endpoint, ClientId client, std::string json,
+             Callback<std::shared_ptr<const json::Doc>> done);
+    std::future<Result<std::shared_ptr<const json::Doc>>> post(std::string endpoint, ClientId client,
+                                                               std::string json);
     Raw(const Raw &) = delete;
     Raw &operator=(const Raw &) = delete;
 private:

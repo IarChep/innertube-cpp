@@ -1,7 +1,7 @@
 // yt::json — the index builder, the escape decoder, raw extents, find() and the writer.
 // The builder is the only code that reads untrusted bytes structurally: one forward pass,
 // no recursion, every byte read bounds-checked; the views trust the tape it produced.
-#include "json/json.h"
+#include <yt/json.h>
 #include <charconv>
 #if defined(__SSE2__) || defined(_M_X64)
 #include <emmintrin.h>

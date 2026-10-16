@@ -2,7 +2,7 @@
 // the document is its own. For any input the builder must not crash; for an accepted one,
 // writing the tree back must reparse to the same text (a round trip through Writer),
 // every value's raw() must reparse, and find() must visit every member exactly once.
-#include "json/json.h"
+#include <yt/json.h>
 #include <cstdlib>
 #include <string>
 using namespace yt::json;

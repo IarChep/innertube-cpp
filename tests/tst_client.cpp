@@ -388,13 +388,15 @@ TEST_CASE("futures for links, pages and more") {
     REQUIRE(ready(second));
     CHECK(second.get().ok());
 }
-TEST_CASE("raw: the future form delivers the response body") {
+TEST_CASE("raw: the future form delivers the indexed answer") {
     auto f = std::make_shared<FakeHttp>(); f->queue("browse", "{\"x\":1}");
     auto c = mk(f);
-    auto body = c->raw().post("browse", yt::ClientId::WEB, "{\"browseId\":\"FEx\"}");
-    for (int i = 0; i < 8 && !ready(body); ++i) { c->runOnce(0); f->flush(); }
-    REQUIRE(ready(body));
-    const yt::Result<std::string> r = body.get();
+    auto answer = c->raw().post("browse", yt::ClientId::WEB, "{\"browseId\":\"FEx\"}");
+    for (int i = 0; i < 8 && !ready(answer); ++i) { c->runOnce(0); f->flush(); }
+    REQUIRE(ready(answer));
+    const yt::Result<std::shared_ptr<const yt::json::Doc>> r = answer.get();
     REQUIRE(r.ok());
-    CHECK(r.value == "{\"x\":1}");
+    REQUIRE(r.value);
+    CHECK(r.value->text() == "{\"x\":1}");
+    CHECK(r.value->root()["x"].int64() == 1);
 }

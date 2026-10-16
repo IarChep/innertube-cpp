@@ -3,8 +3,8 @@
 // fail: malformed input yields absent fields / empty lists.
 #ifndef YT_PLAYERPARSER_H
 #define YT_PLAYERPARSER_H
+#include <yt/json.h>
 #include <yt/player.h>
-#include "json/json.h"
 #include <string>
 #include <string_view>
 #include <vector>

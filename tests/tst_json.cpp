@@ -1,7 +1,7 @@
 // yt::json: the validating index (grammar, escapes, numbers, depth), lazy views, find()
 // and the writer. Built at C++17: the component promises to stay portable.
 #include <doctest/doctest.h>
-#include "json/json.h"
+#include <yt/json.h>
 #include <memory>
 #include <string>
 #include <vector>

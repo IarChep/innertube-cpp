@@ -1,7 +1,7 @@
 #ifndef YT_RENDERERPARSER_H
 #define YT_RENDERERPARSER_H
+#include <yt/json.h>
 #include <yt/types.h>
-#include "json/json.h"
 #include <string>
 #include <vector>
 namespace yt {

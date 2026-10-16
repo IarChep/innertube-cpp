@@ -2,7 +2,7 @@
 #define YT_CONTINUATION_H
 // Continuation tokens: the cursor of every InnerTube list, hidden under three wrapper
 // keys whose shapes differ (parsers/continuation.cpp).
-#include "json/json.h"
+#include <yt/json.h>
 #include <string>
 #include <string_view>
 namespace yt {

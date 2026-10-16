@@ -1,6 +1,7 @@
 // core::chains — the request layer (ported from MeeTube's core::chains, which in turn
 // was a byte-for-byte port of cuteTube2's QObject request classes onto callbacks).
 #include "core/chains.h"
+#include <yt/json.h>
 #include <yt/link.h>
 #include "core/log.h"
 #include "core/pct.h"
@@ -8,7 +9,6 @@
 #include "innertube/catalog.h"
 #include "innertube/clientconfig.h"
 #include "innertube/playerjs.h"
-#include "json/json.h"
 #include "json/json3.h"
 #include "json/ytjson.h"
 #include "parsers/continuation.h"
@@ -732,9 +732,9 @@ void editPlaylist(IHttp &http, std::string playlistId, PlaylistEdit edit, std::s
 }
 
 void rawPost(IHttp &http, std::string endpoint, ClientId client, std::string json, const JobToken &job,
-             Callback<std::string> done)
+             Callback<std::shared_ptr<const json::Doc>> done)
 {
-    Result<std::string> out;
+    Result<std::shared_ptr<const json::Doc>> out;
     if (!isEndpointPath(endpoint)) {
         out.error = Error{ErrorCode::InvalidArgument, "not an InnerTube endpoint: " + endpoint, 0};
         done(out);
@@ -753,10 +753,10 @@ void rawPost(IHttp &http, std::string endpoint, ClientId client, std::string jso
     }
     if (json.find_first_not_of(" \t\r\n", 1) == json.size() - 1) json = "{}";
     http.post(endpoint, client, std::move(json), job, [done](const Reply &r) {
-        Result<std::string> body;
-        if (!r.ok) { body.error = errorOf(r); done(body); return; }
-        body.value = *r.body;
-        done(body);
+        Result<std::shared_ptr<const json::Doc>> answer;
+        if (!r.ok) { answer.error = errorOf(r); done(answer); return; }
+        answer.value = std::make_shared<const json::Doc>(r.body);
+        done(answer);
     });
 }
 
