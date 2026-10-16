@@ -48,3 +48,9 @@ TEST_CASE("playlist edits") {
     CHECK(bodies::playlistRemoveVideo("PLabc", "vid42") ==
           "{\"playlistId\":\"PLabc\",\"actions\":[{\"action\":\"ACTION_REMOVE_VIDEO_BY_VIDEO_ID\",\"removedVideoId\":\"vid42\"}]}");
 }
+// Glaze wrote a control byte raw — invalid JSON that YouTube refuses — so a comment or a
+// query carrying one (pasted text) failed to send. It must go out escaped.
+TEST_CASE("control bytes are escaped") {
+    CHECK(bodies::createComment("P", "a\x01" "b") == "{\"createCommentParams\":\"P\",\"commentText\":\"a\\u0001b\"}");
+    CHECK(bodies::search("x\ty\x1f", "") == "{\"query\":\"x\\ty\\u001f\"}");
+}

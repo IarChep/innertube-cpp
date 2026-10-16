@@ -1,39 +1,7 @@
 #include "contextbuilder.h"
 #include "catalog.h"
-#include "json/ytjson.h"
+#include "json/json.h"
 namespace yt {
-
-// The context block, typed (Glaze reflection; nullopt fields are omitted).
-namespace cj {
-
-struct Client {
-    std::string clientName;
-    std::string clientVersion;
-    std::string hl;
-    std::string gl;
-    std::optional<std::string> deviceMake;
-    std::optional<std::string> deviceModel;
-    std::optional<std::string> osName;
-    std::optional<std::string> osVersion;
-    std::optional<int> androidSdkVersion;
-    std::optional<std::string> platform;
-    std::optional<std::string> visitorData;
-    std::optional<std::string> userAgent;          // VISIONOS repeats its UA in the context
-};
-struct User {
-    bool lockedSafetyMode = false;
-};
-struct Request {
-    bool useSsl = true;
-    std::vector<int> internalExperimentFlags;   // always the empty array
-};
-struct Context {
-    Client client;
-    User user;
-    Request request;
-};
-
-} // namespace cj
 
 // IOS is used ONLY for the anonymous /player and must stay "clean" (no visitorData /
 // X-Goog-Visitor-Id) or YouTube returns a SABR-only player response without the
@@ -49,34 +17,40 @@ static bool omitVisitor(ClientId id) {
 
 std::string ContextBuilder::contextJson(ClientId id, const Session &s) {
     const ClientInfo &ci = s.clients[(int) id];
-    cj::Context ctx;
-    ctx.client.clientName = ci.name;
-    ctx.client.clientVersion = ci.version;
-    ctx.client.hl = s.hl;
-    ctx.client.gl = s.gl;
+    // The device fields each client identity sends; absent ones are omitted.
+    const char *make = nullptr, *model = nullptr, *os = nullptr, *osVersion = nullptr, *platform = nullptr;
+    int sdk = 0;
     if (id == ClientId::IOS) {
-        ctx.client.deviceMake = "Apple"; ctx.client.deviceModel = "iPhone16,2";
-        ctx.client.osName = "iOS"; ctx.client.osVersion = "18.0";
+        make = "Apple"; model = "iPhone16,2"; os = "iOS"; osVersion = "18.0";
     } else if (id == ClientId::ANDROID) {
-        ctx.client.androidSdkVersion = 34; ctx.client.osName = "Android"; ctx.client.osVersion = "14";
-        ctx.client.platform = "MOBILE";
+        sdk = 34; os = "Android"; osVersion = "14"; platform = "MOBILE";
     } else if (id == ClientId::ANDROID_VR) {
-        ctx.client.androidSdkVersion = 32; ctx.client.osName = "Android"; ctx.client.osVersion = "12L";
-        ctx.client.deviceMake = "Oculus"; ctx.client.deviceModel = "Quest 3"; ctx.client.platform = "MOBILE";
+        sdk = 32; os = "Android"; osVersion = "12L"; make = "Oculus"; model = "Quest 3"; platform = "MOBILE";
     } else if (id == ClientId::VISIONOS) {
-        ctx.client.deviceMake = "Apple"; ctx.client.deviceModel = "RealityDevice14,1";
-        ctx.client.osName = "visionOS"; ctx.client.osVersion = "1.0.2.21O209";
-        ctx.client.userAgent = ci.userAgent;
+        make = "Apple"; model = "RealityDevice14,1"; os = "visionOS"; osVersion = "1.0.2.21O209";
     }
+    json::Writer w;
+    w.beginObject().key("client").beginObject()
+        .member("clientName", ci.name).member("clientVersion", ci.version).member("hl", s.hl).member("gl", s.gl);
+    if (make) w.member("deviceMake", make);
+    if (model) w.member("deviceModel", model);
+    if (os) w.member("osName", os).member("osVersion", osVersion);
+    if (sdk) w.member("androidSdkVersion", sdk);
+    if (platform) w.member("platform", platform);
     // Omit visitorData ONLY on IOS (see omitVisitor above): there a cross-client
     // visitorData is a SABR "distrust" signal that strips the hlsManifestUrl we play,
     // while on ANDROID_VR the visitorData is what CLEARS the anti-bot LOGIN_REQUIRED.
-    if (!omitVisitor(id) && !s.visitorData.empty())
-        ctx.client.visitorData = s.visitorData;
+    if (!omitVisitor(id) && !s.visitorData.empty()) w.member("visitorData", s.visitorData);
+    if (id == ClientId::VISIONOS) w.member("userAgent", ci.userAgent);   // VISIONOS repeats its UA
     // user + request: minimum-viable shape real clients send; harmless when
     // unneeded, but several endpoints behave better with it present (see
     // docs/INNERTUBE_API.md §5).
-    return glz::write_json(ctx).value_or(std::string("{}"));
+    w.endObject()
+        .key("user").beginObject().member("lockedSafetyMode", false).endObject()
+        .key("request").beginObject().member("useSsl", true)
+            .key("internalExperimentFlags").beginArray().endArray().endObject()
+        .endObject();
+    return w.take();
 }
 
 std::vector<Header> ContextBuilder::headers(ClientId id, const Session &s) {

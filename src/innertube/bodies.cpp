@@ -1,203 +1,117 @@
 #include "bodies.h"
 #include "innertube/catalog.h"
-#include "json/ytjson.h"
+#include "json/json.h"
 
 namespace yt {
 namespace bodies {
 
-// Body shapes (Glaze reflection; std::nullopt members are omitted on write —
-// glz's default skip_null_members — which is how the conditional fields work).
-namespace bj {
+// Every body is one small object written field by field; members that are absent for a
+// call are simply not written (the old Glaze shapes' nullopt fields).
+namespace {
 
-struct Browse {
-    std::string browseId;
-    std::optional<std::string> params;
-};
-struct Search {
-    std::string query;
-    std::optional<std::string> params;
-};
-struct Next {
-    std::optional<std::string> videoId;
-    std::optional<std::string> continuation;
-};
-struct ContentPlaybackContext {
-    std::string html5Preference = "HTML5_PREF_WANTS";
-    // From base.js (innertube/playerjs.*); omitted while unknown.
-    std::optional<int> signatureTimestamp;
-};
-struct PlaybackContext {
-    ContentPlaybackContext contentPlaybackContext;
-};
-struct Player {
-    std::string videoId;
-    bool contentCheckOk = true;
-    bool racyCheckOk = true;
-    std::optional<std::string> cpn;
-    std::optional<PlaybackContext> playbackContext;   // TVHTML5 only (else "reloaded")
-};
-struct Resolve {
-    std::string url;
-};
-struct ReadMask {
-    bool returnOwner = true;
-};
-struct AccountsList {
-    ReadMask accountReadMask;
-};
-struct Subscribe {
-    std::vector<std::string> channelIds;
-};
-struct Target {
-    std::string videoId;
-};
-struct Like {
-    Target target;
-};
-struct CreateComment {
-    std::string createCommentParams;
-    std::string commentText;
-};
-struct EditAction {
-    std::string action;
-    std::optional<std::string> addedVideoId;   // omitted when nullopt (add only)
-    std::optional<std::string> removedVideoId; // omitted when nullopt (remove only)
-};
-struct EditPlaylist {
-    std::string playlistId;
-    std::vector<EditAction> actions;
-};
-
-struct RapidQr {
-    std::string qrPresetStyle = Catalog::kQrPresetStyle;
-    std::string userCode;
-    std::string rapidQrFeature = "RAPID_QR_FEATURE_DEFAULT";
-};
-struct HandoffQr {
-    RapidQr rapidQrParams;
-};
-struct Mdx {
-    HandoffQr handoffQrParams;
-};
-
-} // namespace bj
-
-template <class T>
-static std::string dump(const T &body)
+// {"<key>": "<value>"} — most bodies are one string member.
+std::string one(std::string_view key, std::string_view value)
 {
-    return glz::write_json(body).value_or(std::string("{}"));
+    return json::Writer().beginObject().member(key, value).endObject().take();
 }
 
-static std::optional<std::string> opt(std::string_view s)
-{
-    if (s.empty()) return std::nullopt;
-    return std::string(s);
-}
+} // namespace
 
 std::string browse(std::string_view browseId, std::string_view params)
 {
-    bj::Browse b;
-    b.browseId = std::string(browseId);
-    b.params = opt(params);                          // tab selector, e.g. a channel's Videos tab
-    return dump(b);
+    json::Writer w;
+    w.beginObject().member("browseId", browseId);
+    if (!params.empty()) w.member("params", params);   // tab selector, e.g. a channel's Videos tab
+    return w.endObject().take();
 }
 
 std::string search(std::string_view query, std::string_view params)
 {
-    bj::Search b;
-    b.query = std::string(query);
-    if (!params.empty()) b.params = std::string(params);
-    return dump(b);
+    json::Writer w;
+    w.beginObject().member("query", query);
+    if (!params.empty()) w.member("params", params);
+    return w.endObject().take();
 }
 
-std::string nextVideo(std::string_view videoId)
-{
-    bj::Next b;
-    b.videoId = std::string(videoId);
-    return dump(b);
-}
+std::string nextVideo(std::string_view videoId) { return one("videoId", videoId); }
 
-std::string continuation(std::string_view token)
-{
-    bj::Next b;
-    b.continuation = std::string(token);
-    return dump(b);
-}
+std::string continuation(std::string_view token) { return one("continuation", token); }
 
 std::string player(std::string_view videoId, const PlayerBody &pb)
 {
-    bj::Player b;
-    b.videoId = std::string(videoId);
+    json::Writer w;
+    w.beginObject().member("videoId", videoId).member("contentCheckOk", true).member("racyCheckOk", true);
     if (pb.tv) {
-        b.cpn = pb.cpn;
-        b.playbackContext = bj::PlaybackContext{};
-        if (pb.signatureTimestamp > 0)
-            b.playbackContext->contentPlaybackContext.signatureTimestamp = pb.signatureTimestamp;
+        w.member("cpn", pb.cpn)
+            .key("playbackContext").beginObject()
+            .key("contentPlaybackContext").beginObject().member("html5Preference", "HTML5_PREF_WANTS");
+        // From base.js (innertube/playerjs.*); omitted while unknown.
+        if (pb.signatureTimestamp > 0) w.member("signatureTimestamp", pb.signatureTimestamp);
+        w.endObject().endObject();
     }
-    return dump(b);
+    return w.endObject().take();
 }
 
-std::string resolveUrl(std::string_view url)
-{
-    bj::Resolve b;
-    b.url = std::string(url);
-    return dump(b);
-}
+std::string resolveUrl(std::string_view url) { return one("url", url); }
 
 std::string accountsList()
 {
-    return dump(bj::AccountsList{});
+    return json::Writer().beginObject()
+        .key("accountReadMask").beginObject().member("returnOwner", true).endObject()
+        .endObject().take();
 }
 
 std::string subscribeChannels(std::string_view channelId)
 {
-    bj::Subscribe b;
-    b.channelIds.push_back(std::string(channelId));
-    return dump(b);
+    return json::Writer().beginObject().key("channelIds").beginArray().str(channelId).endArray().endObject().take();
 }
 
 std::string likeTarget(std::string_view videoId)
 {
-    bj::Like b;
-    b.target.videoId = std::string(videoId);
-    return dump(b);
+    return json::Writer().beginObject()
+        .key("target").beginObject().member("videoId", videoId).endObject()
+        .endObject().take();
 }
 
 std::string createComment(std::string_view createCommentParams, std::string_view text)
 {
-    bj::CreateComment b;
-    b.createCommentParams = std::string(createCommentParams);
-    b.commentText = std::string(text);
-    return dump(b);
+    return json::Writer().beginObject()
+        .member("createCommentParams", createCommentParams).member("commentText", text)
+        .endObject().take();
 }
+
+namespace {
+
+// One edit_playlist action: {"playlistId", "actions": [{"action", "<idKey>": videoId}]}.
+std::string editPlaylist(std::string_view playlistId, const char *action, const char *idKey, std::string_view videoId)
+{
+    return json::Writer().beginObject()
+        .member("playlistId", playlistId)
+        .key("actions").beginArray().beginObject().member("action", action).member(idKey, videoId).endObject().endArray()
+        .endObject().take();
+}
+
+} // namespace
 
 std::string playlistAddVideo(std::string_view playlistId, std::string_view videoId)
 {
-    bj::EditAction a;
-    a.action = "ACTION_ADD_VIDEO";
-    a.addedVideoId = std::string(videoId);
-    bj::EditPlaylist b;
-    b.playlistId = std::string(playlistId);
-    b.actions.push_back(a);
-    return dump(b);
+    return editPlaylist(playlistId, "ACTION_ADD_VIDEO", "addedVideoId", videoId);
 }
 
 std::string playlistRemoveVideo(std::string_view playlistId, std::string_view videoId)
 {
-    bj::EditAction a;
-    a.action = "ACTION_REMOVE_VIDEO_BY_VIDEO_ID";
-    a.removedVideoId = std::string(videoId);
-    bj::EditPlaylist b;
-    b.playlistId = std::string(playlistId);
-    b.actions.push_back(a);
-    return dump(b);
+    return editPlaylist(playlistId, "ACTION_REMOVE_VIDEO_BY_VIDEO_ID", "removedVideoId", videoId);
 }
 
 std::string mdxHandoff(std::string_view userCode)
 {
-    bj::Mdx b;
-    b.handoffQrParams.rapidQrParams.userCode = std::string(userCode);
-    return dump(b);
+    return json::Writer().beginObject()
+        .key("handoffQrParams").beginObject()
+        .key("rapidQrParams").beginObject()
+        .member("qrPresetStyle", Catalog::kQrPresetStyle).member("userCode", userCode)
+        .member("rapidQrFeature", "RAPID_QR_FEATURE_DEFAULT")
+        .endObject().endObject()
+        .endObject().take();
 }
 
 }

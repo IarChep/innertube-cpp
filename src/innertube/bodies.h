@@ -1,9 +1,9 @@
 #ifndef YT_BODIES_H
 #define YT_BODIES_H
 // Serialized InnerTube POST bodies (WITHOUT the context block — the transport
-// splices that in; see core::Http::post). One function per endpoint body
-// shape so the Glaze include cost is paid once, in bodies.cpp: the requests see
-// only std::string_view -> std::string.
+// splices that in; see core::Http::post). One function per endpoint body shape,
+// written with json::Writer in bodies.cpp: the requests see only
+// std::string_view -> std::string.
 //
 // Every builder returns a minified JSON OBJECT ("{...}") — the transport's
 // context splice relies on that.
