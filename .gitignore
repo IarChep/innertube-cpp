@@ -3,3 +3,5 @@
 /compile_commands.json
 compile_commands.json
 yt-cli-state.json
+bench/ext/
+bench/out/
